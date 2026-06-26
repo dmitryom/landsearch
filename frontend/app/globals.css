@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d40a0;
+  --primary-light: #dbeafe;
+  --accent: #059669;
+  --free: #22c55e;
+  --reserved: #eab308;
+  --booked: #f97316;
+  --sold: #ef4444;
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --text: #0f172a;
+  --text-secondary: #64748b;
+  --border: #e2e8f0;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
+
+.maplibregl-popup-content {
+  border-radius: 12px !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+.maplibregl-popup-close-button {
+  font-size: 20px;
+  padding: 4px 8px;
+  color: #94a3b8;
+}
+.maplibregl-popup-close-button:hover {
+  color: #475569;
+}
