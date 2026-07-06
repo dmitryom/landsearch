@@ -1,56 +1,30 @@
-import math
+import hashlib
+import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Query
 from geoalchemy2 import shape
 from shapely.geometry import mapping
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ...core.config import settings
 from ...core.database import get_session
-from ...models import Plot, PlotStatus, Settlement, Tenant, User
-from ...schemas import (
-    PlotCreate,
-    PlotGeoJSON,
-    PlotListResponse,
-    PlotResponse,
-    PlotSearchParams,
-    PlotUpdate,
-)
-from ..deps import get_current_user
-from ...services.cadastre import enrich_from_cadastre
+from ...core.exceptions import BadRequestException, NotFoundException
+from ...metrics import CACHE_HITS, CACHE_MISSES, PLOTS_GEO_TOTAL
+from ...models import Plot, PlotStatus, User
+from ...schemas import PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotUpdate
+from ...services.cadastre import batch_enrich, enrich_from_cadastre, lookup_cadastre
+from ...services.similar import find_similar_plots
+from ...utils.plot_helpers import plot_to_response
+from ..deps import get_current_user, get_current_user_optional
+
+import redis.asyncio as aioredis
+
+ALLOWED_SORT_FIELDS = {"created_at", "price", "area_m2", "cadastral_number"}
 
 router = APIRouter(prefix="/plots", tags=["plots"])
-
-
-def _plot_to_response(plot: Plot) -> PlotResponse:
-    geom = None
-    if plot.geometry:
-        try:
-            geom = mapping(shape.to_shape(plot.geometry))
-        except Exception:
-            pass
-    return PlotResponse(
-        id=str(plot.id),
-        tenant_id=str(plot.tenant_id),
-        cadastral_number=plot.cadastral_number,
-        address=plot.address,
-        area_m2=plot.area_m2,
-        category=plot.category,
-        permitted_use=plot.permitted_use,
-        cadastral_value=plot.cadastral_value,
-        cad_unit=plot.cad_unit,
-        price=plot.price,
-        price_per_hectare=plot.price_per_hectare,
-        status=plot.status.value if isinstance(plot.status, PlotStatus) else plot.status,
-        title=plot.title,
-        description=plot.description,
-        geometry=geom,
-        is_active=plot.is_active,
-        created_at=plot.created_at,
-        updated_at=plot.updated_at,
-    )
 
 
 @router.get("", response_model=PlotListResponse)
@@ -70,9 +44,17 @@ async def list_plots(
     sort_by: str = "created_at",
     sort_order: str = "desc",
     session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
-    stmt = select(Plot).where(Plot.is_active == True)
+    stmt = select(Plot).where(Plot.is_active)
+    if current_user:
+        stmt = stmt.where(Plot.tenant_id == current_user.tenant_id)
 
+    if settlement_id:
+        try:
+            stmt = stmt.where(Plot.settlement_id == UUID(settlement_id))
+        except ValueError:
+            raise BadRequestException("Invalid settlement_id")
     if query:
         like = f"%{query}%"
         stmt = stmt.where(
@@ -82,8 +64,6 @@ async def list_plots(
                 Plot.title.ilike(like),
             )
         )
-    if settlement_id:
-        stmt = stmt.where(Plot.settlement_id == UUID(settlement_id))
     if status:
         stmt = stmt.where(Plot.status == status)
     if permitted_use:
@@ -101,6 +81,8 @@ async def list_plots(
     total_result = await session.execute(count_stmt)
     total = total_result.scalar() or 0
 
+    if sort_by not in ALLOWED_SORT_FIELDS:
+        sort_by = "created_at"
     sort_col = getattr(Plot, sort_by, Plot.created_at)
     order_fn = sort_col.desc() if sort_order == "desc" else sort_col.asc()
     stmt = stmt.order_by(order_fn).offset((page - 1) * page_size).limit(page_size)
@@ -109,24 +91,69 @@ async def list_plots(
     plots = result.scalars().all()
 
     return PlotListResponse(
-        items=[_plot_to_response(p) for p in plots],
+        items=[plot_to_response(p) for p in plots],
         total=total,
         page=page,
         page_size=page_size,
     )
 
 
+def _cache_key(prefix: str, **kwargs) -> str:
+    raw = json.dumps(kwargs, sort_keys=True, default=str)
+    h = hashlib.md5(raw.encode()).hexdigest()[:12]
+    return f"landsearch:{prefix}:{h}"
+
+
+async def _get_redis():
+    try:
+        r = aioredis.from_url(settings.redis_url, decode_responses=True)
+        await r.ping()
+        return r
+    except Exception:
+        return None
+
+
 @router.get("/geo", response_model=PlotGeoJSON)
 async def plots_geojson(
+    bbox: str | None = Query(None, description="min_lng,min_lat,max_lng,max_lat"),
     status: str | None = None,
     permitted_use: str | None = None,
+    cad_unit: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = select(Plot).where(Plot.is_active == True, Plot.geometry.isnot(None))
+    cache = await _get_redis()
+    cache_key = _cache_key("plots:geo", bbox=bbox, status=status, permitted_use=permitted_use, cad_unit=cad_unit)
+
+    if cache:
+        try:
+            cached = await cache.get(cache_key)
+            if cached:
+                CACHE_HITS.labels(cache_type="redis").inc()
+                return PlotGeoJSON(**json.loads(cached))
+        except Exception:
+            pass
+    CACHE_MISSES.labels(cache_type="redis").inc()
+
+    stmt = select(Plot).where(Plot.is_active, Plot.geometry.isnot(None))
+
+    if bbox:
+        try:
+            parts = [float(x.strip()) for x in bbox.split(",")]
+            if len(parts) == 4:
+                min_lng, min_lat, max_lng, max_lat = parts
+                bbox_geom = func.ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326)
+                stmt = stmt.where(func.ST_Intersects(Plot.geometry, bbox_geom))
+        except (ValueError, IndexError):
+            pass
+
     if status:
         stmt = stmt.where(Plot.status == status)
     if permitted_use:
         stmt = stmt.where(Plot.permitted_use.ilike(f"%{permitted_use}%"))
+    if cad_unit:
+        stmt = stmt.where(Plot.cad_unit.like(f"{cad_unit}%"))
+
+    stmt = stmt.limit(5000)
 
     result = await session.execute(stmt)
     plots = result.scalars().all()
@@ -134,9 +161,13 @@ async def plots_geojson(
     features = []
     for p in plots:
         geom = None
+        center_lng, center_lat = None, None
         if p.geometry:
             try:
-                geom = mapping(shape.to_shape(p.geometry))
+                s = shape.to_shape(p.geometry)
+                geom = mapping(s)
+                centroid = s.centroid
+                center_lng, center_lat = centroid.x, centroid.y
             except Exception:
                 continue
         features.append({
@@ -148,23 +179,230 @@ async def plots_geojson(
                 "price": p.price,
                 "area_m2": p.area_m2,
                 "permitted_use": p.permitted_use,
+                "center_lng": center_lng,
+                "center_lat": center_lat,
                 "status": p.status.value if isinstance(p.status, PlotStatus) else p.status,
                 "title": p.title,
+                "object_type": p.object_type,
+                "land_plot_type": p.land_plot_type,
+                "registration_date": p.registration_date,
+                "ownership_form": p.ownership_form,
+                "cad_unit": p.cad_unit,
+                "category": p.category,
+                "cadastral_value": p.cadastral_value,
             },
         })
 
-    return PlotGeoJSON(features=features)
+    geojson = {"type": "FeatureCollection", "features": features}
+
+    PLOTS_GEO_TOTAL.set(len(features))
+
+    if cache:
+        try:
+            await cache.setex(cache_key, 300, json.dumps(geojson, default=str))
+        except Exception:
+            pass
+
+    return PlotGeoJSON(**geojson)
+
+
+@router.get("/lookup")
+async def lookup_plot_data(
+    cadastral_number: str = Query(..., min_length=1),
+    current_user: User = Depends(get_current_user),
+):
+    data = await lookup_cadastre(cadastral_number.strip())
+    if data is None:
+        raise NotFoundException("Кадастровый номер не найден в ЕГРН/Росреестр")
+    return data
+
+
+@router.post("/batch-enrich")
+async def batch_enrich_plots(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    enriched = await batch_enrich(session, str(current_user.tenant_id))
+    return {"enriched": enriched}
+
+
+@router.get("/tiles/{z}/{x}/{y}.mvt")
+async def plot_tiles(
+    z: int,
+    x: int,
+    y: int,
+    status: str | None = None,
+    permitted_use: str | None = None,
+    cad_unit: str | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """MVT vector tiles for map rendering."""
+    from fastapi.responses import Response
+
+    cache = await _get_redis()
+    cache_key = f"landsearch:tiles:{z}/{x}/{y}:{status or ''}:{permitted_use or ''}:{cad_unit or ''}"
+
+    if cache:
+        try:
+            cached = await cache.get(cache_key)
+            if cached:
+                CACHE_HITS.labels(cache_type="redis").inc()
+                return Response(content=cached, media_type="application/vnd.mapbox-vector-tile")
+        except Exception:
+            pass
+    CACHE_MISSES.labels(cache_type="redis").inc()
+
+    where_clauses = ["p.geometry IS NOT NULL", "p.is_active = true",
+                     "ST_Intersects(ST_Transform(p.geometry, 3857), ST_TileEnvelope(:z, :x, :y))"]
+    params = {"z": z, "x": x, "y": y}
+
+    if status:
+        where_clauses.append("p.status = :status")
+        params["status"] = status
+    if permitted_use:
+        where_clauses.append("p.permitted_use ILIKE :permitted_use")
+        params["permitted_use"] = f"%{permitted_use}%"
+    if cad_unit:
+        where_clauses.append("p.cad_unit LIKE :cad_unit")
+        params["cad_unit"] = f"{cad_unit}%"
+
+    vri_case = """
+        CASE
+            WHEN p.permitted_use ILIKE '%ижс%' OR p.permitted_use ILIKE '%индивидуального жилищного%'
+                OR p.permitted_use ILIKE '%индивидуальное жилищное%' OR p.permitted_use ILIKE '%индивидуальный жилой%' THEN 'ИЖС'
+            WHEN p.permitted_use ILIKE '%лпх%' OR p.permitted_use ILIKE '%личного подсобного%'
+                OR p.permitted_use ILIKE '%личное подсобное%' OR p.permitted_use ILIKE '%приусадебн%'
+                OR p.permitted_use ILIKE '%подсобного хозяйства%' THEN 'ЛПХ'
+            WHEN p.permitted_use ILIKE '%снт%' OR p.permitted_use ILIKE '%садоводств%'
+                OR p.permitted_use ILIKE '%садов%' THEN 'СНТ'
+            WHEN p.permitted_use ILIKE '%огород%' THEN 'ОГОРОД'
+            WHEN p.permitted_use ILIKE '%днп%' OR p.permitted_use ILIKE '%дачн%' THEN 'ДНП'
+            WHEN p.permitted_use ILIKE '%многоквартирн%' OR p.permitted_use ILIKE '%среднеэтажн%'
+                OR p.permitted_use ILIKE '%малоэтажн%' OR p.permitted_use ILIKE '%блокированн%'
+                OR p.permitted_use ILIKE '%жилищное строительств%' THEN 'ЖИЛОЙ'
+            WHEN p.permitted_use ILIKE '%общего пользования%' OR p.permitted_use ILIKE '%благоустройство территории%' THEN 'ОГП'
+            WHEN p.permitted_use ILIKE '%гараж%' OR p.permitted_use ILIKE '%стоянк%'
+                OR p.permitted_use ILIKE '%хранение автотранспорт%' THEN 'ГАРАЖ'
+            WHEN p.permitted_use ILIKE '%транспорт%' OR p.permitted_use ILIKE '%автомобиль%'
+                OR p.permitted_use ILIKE '%автодорог%' OR p.permitted_use ILIKE '%дорожн%' THEN 'ТРАНСПОРТ'
+            WHEN p.permitted_use ILIKE '%торгов%' OR p.permitted_use ILIKE '%магазин%'
+                OR p.permitted_use ILIKE '%общественного питания%' OR p.permitted_use ILIKE '%предпринимат%'
+                OR p.permitted_use ILIKE '%делов%' OR p.permitted_use ILIKE '%банк%'
+                OR p.permitted_use ILIKE '%гостинич%' OR p.permitted_use ILIKE '%офис%'
+                OR p.permitted_use ILIKE '%рынок%' OR p.permitted_use ILIKE '%развлечен%'
+                OR p.permitted_use ILIKE '%бытовое обслуживание%' OR p.permitted_use ILIKE '%сервис%' THEN 'КОМ'
+            WHEN p.permitted_use ILIKE '%склад%' THEN 'СКЛАД'
+            WHEN p.permitted_use ILIKE '%промышлен%' OR p.permitted_use ILIKE '%производствен%'
+                OR p.permitted_use ILIKE '%недропользован%' THEN 'ПРОМ'
+            WHEN p.permitted_use ILIKE '%коммунальн%' OR p.permitted_use ILIKE '%энергетик%'
+                OR p.permitted_use ILIKE '%электро%' OR p.permitted_use ILIKE '%инженерн%'
+                OR p.permitted_use ILIKE '%газоснабж%' OR p.permitted_use ILIKE '%водоснабж%'
+                OR p.permitted_use ILIKE '%теплоснабж%' THEN 'КОММУН'
+            WHEN p.permitted_use ILIKE '%связь%' THEN 'СВЯЗЬ'
+            WHEN p.permitted_use ILIKE '%сельскохозяйствен%' OR p.permitted_use ILIKE '%животноводств%'
+                OR p.permitted_use ILIKE '%растениеводств%' OR p.permitted_use ILIKE '%выращивани%'
+                OR p.permitted_use ILIKE '%сенокош%' OR p.permitted_use ILIKE '%выпас%'
+                OR p.permitted_use ILIKE '%фермерск%' OR p.permitted_use ILIKE '%кфх%' THEN 'СХ'
+            WHEN p.permitted_use ILIKE '%спорт%' OR p.permitted_use ILIKE '%физкультур%' THEN 'СПОРТ'
+            WHEN p.permitted_use ILIKE '%отдых%' OR p.permitted_use ILIKE '%рекреац%'
+                OR p.permitted_use ILIKE '%турист%' OR p.permitted_use ILIKE '%санатор%' THEN 'ОТДЫХ'
+            WHEN p.permitted_use ILIKE '%ритуальн%' OR p.permitted_use ILIKE '%кладбищ%' THEN 'РИТУАЛ'
+            WHEN p.permitted_use ILIKE '%социальн%' OR p.permitted_use ILIKE '%образован%'
+                OR p.permitted_use ILIKE '%здравоохранен%' OR p.permitted_use ILIKE '%больниц%'
+                OR p.permitted_use ILIKE '%медицин%' OR p.permitted_use ILIKE '%культур%'
+                OR p.permitted_use ILIKE '%библиотек%' THEN 'СОЦИАЛЬНЫЙ'
+            WHEN p.permitted_use ILIKE '%лесн%' THEN 'ЛЕСНОЙ'
+            WHEN p.permitted_use ILIKE '%водн%' OR p.permitted_use ILIKE '%гидротехн%' THEN 'ВОДНЫЙ'
+            WHEN p.permitted_use ILIKE '%оборон%' OR p.permitted_use ILIKE '%безопасность%' THEN 'ОБОРОНА'
+            WHEN p.permitted_use ILIKE '%специальн%' THEN 'СПЕЦИАЛЬНЫЙ'
+            WHEN p.permitted_use ILIKE '%запас%' THEN 'ЗАПАС'
+            WHEN p.permitted_use ILIKE '%пустыр%' OR p.permitted_use IS NULL OR p.permitted_use = '' THEN 'ПУСТЫРЬ'
+            ELSE 'ДРУГОЕ'
+        END
+    """
+
+    sql = f"""
+    SELECT ST_AsMVT(mvt, 'plots', 4096, 'mvtgeom')
+    FROM (
+        SELECT
+            ST_AsMVTGeom(ST_Transform(p.geometry, 3857), ST_TileEnvelope(:z, :x, :y), 4096, 256, true) AS mvtgeom,
+            p.id::text AS id,
+            p.cadastral_number AS cad_num,
+            p.status::text AS status,
+            p.price AS price,
+            p.area_m2 AS area,
+            p.permitted_use AS use,
+            {vri_case} AS vri_code,
+            p.object_type AS obj_type,
+            p.cad_unit AS cad_unit,
+            p.category AS category,
+            p.cadastral_value AS cad_value
+        FROM plots p
+        WHERE {' AND '.join(where_clauses)}
+    ) AS mvt
+    """
+
+    result = await session.execute(text(sql), params)
+    mvt_data = result.scalar() or b""
+
+    if cache and mvt_data:
+        try:
+            await cache.setex(cache_key, 600, mvt_data)
+        except Exception:
+            pass
+
+    return Response(
+        content=mvt_data,
+        media_type="application/vnd.mapbox-vector-tile",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/{plot_id}", response_model=PlotResponse)
 async def get_plot(plot_id: str, session: AsyncSession = Depends(get_session)):
-    result = await session.execute(
-        select(Plot).where(Plot.id == UUID(plot_id), Plot.is_active == True)
-    )
+    try:
+        result = await session.execute(
+            select(Plot).where(Plot.id == UUID(plot_id), Plot.is_active)
+        )
+    except ValueError:
+        raise BadRequestException("Invalid plot_id")
     plot = result.scalar_one_or_none()
     if not plot:
-        raise HTTPException(status_code=404, detail="Plot not found")
-    return _plot_to_response(plot)
+        raise NotFoundException("Plot not found")
+    return plot_to_response(plot)
+
+
+@router.post("/{plot_id}/enrich", response_model=PlotResponse)
+async def enrich_plot(
+    plot_id: str,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    try:
+        result = await session.execute(
+            select(Plot).where(
+                Plot.id == UUID(plot_id),
+                Plot.tenant_id == current_user.tenant_id,
+                Plot.is_active,
+            )
+        )
+    except ValueError:
+        raise BadRequestException("Invalid plot_id")
+    plot = result.scalar_one_or_none()
+    if not plot:
+        raise NotFoundException("Plot not found")
+
+    ok = await enrich_from_cadastre(session, plot)
+    if ok:
+        await session.commit()
+        await session.refresh(plot)
+    return plot_to_response(plot)
+
+
+@router.get("/{plot_id}/similar", response_model=list[PlotResponse])
+async def similar_plots(plot_id: str, session: AsyncSession = Depends(get_session)):
+    results = await find_similar_plots(session, plot_id)
+    return [plot_to_response(p) for p in results]
 
 
 @router.post("", response_model=PlotResponse, status_code=201)
@@ -182,6 +420,10 @@ async def create_plot(
         permitted_use=body.permitted_use,
         cadastral_value=body.cadastral_value,
         cad_unit=body.cad_unit,
+        object_type=body.object_type,
+        land_plot_type=body.land_plot_type,
+        registration_date=body.registration_date,
+        ownership_form=body.ownership_form,
         price=body.price,
         status=body.status,
         title=body.title,
@@ -200,7 +442,8 @@ async def create_plot(
         pass
 
     await session.commit()
-    return _plot_to_response(plot)
+    await session.refresh(plot)
+    return plot_to_response(plot)
 
 
 @router.patch("/{plot_id}", response_model=PlotResponse)
@@ -218,7 +461,7 @@ async def update_plot(
     )
     plot = result.scalar_one_or_none()
     if not plot:
-        raise HTTPException(status_code=404, detail="Plot not found")
+        raise NotFoundException("Plot not found")
 
     update_data = body.model_dump(exclude_unset=True)
     if "status" in update_data and update_data["status"] != plot.status.value:
@@ -239,7 +482,26 @@ async def update_plot(
 
     await session.commit()
     await session.refresh(plot)
-    return _plot_to_response(plot)
+    return plot_to_response(plot)
+
+
+@router.delete("/bulk", status_code=200)
+async def bulk_delete_plots(
+    plot_ids: list[str] = Body(..., embed=False),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Plot).where(
+            Plot.id.in_([UUID(pid) for pid in plot_ids]),
+            Plot.tenant_id == current_user.tenant_id,
+        )
+    )
+    plots = result.scalars().all()
+    for plot in plots:
+        plot.is_active = False
+    await session.commit()
+    return {"deleted": len(plots)}
 
 
 @router.delete("/{plot_id}", status_code=204)
@@ -256,6 +518,6 @@ async def delete_plot(
     )
     plot = result.scalar_one_or_none()
     if not plot:
-        raise HTTPException(status_code=404, detail="Plot not found")
+        raise NotFoundException("Plot not found")
     plot.is_active = False
     await session.commit()

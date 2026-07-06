@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,7 @@ async def suggest(
                 Plot.cadastral_number.ilike(like),
                 Plot.address.ilike(like),
             ),
-            Plot.is_active == True,
+            Plot.is_active,
         )
         .limit(limit)
     )

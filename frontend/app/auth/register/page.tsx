@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { safeSet } from '@/lib/storage'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -15,7 +16,7 @@ export default function RegisterPage() {
     e.preventDefault()
     try {
       const res = await api.auth.register({ email, password, full_name: name })
-      localStorage.setItem('token', res.access_token)
+      safeSet('token', res.access_token)
       router.push('/admin')
     } catch (err: any) {
       setError(err.message || 'Ошибка регистрации')

@@ -11,7 +11,7 @@ async def find_similar_plots(
 ) -> list[Plot]:
     from uuid import UUID
     result = await session.execute(
-        select(Plot).where(Plot.id == UUID(plot_id), Plot.is_active == True)
+        select(Plot).where(Plot.id == UUID(plot_id), Plot.is_active)
     )
     source = result.scalar_one_or_none()
     if not source:
@@ -19,7 +19,7 @@ async def find_similar_plots(
 
     stmt = select(Plot).where(
         Plot.id != source.id,
-        Plot.is_active == True,
+        Plot.is_active,
         Plot.tenant_id == source.tenant_id,
     )
 

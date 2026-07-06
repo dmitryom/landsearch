@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 
 interface FilterPanelProps {
   filters: Record<string, string>
@@ -10,12 +11,11 @@ interface FilterPanelProps {
 const PERMITTED_USES = ['ИЖС', 'ЛПХ', 'СНТ', 'ДНП', 'ОГП', 'Коммерция']
 const CATEGORIES = ['Земли населённых пунктов', 'Земли сельхозназначения', 'Земли промышленности']
 
-const STATUSES = [
-  { value: 'free', label: 'Свободен', color: '#22c55e' },
-  { value: 'reserved', label: 'В резерве', color: '#eab308' },
-  { value: 'booked', label: 'Забронирован', color: '#f97316' },
-  { value: 'sold', label: 'Продан', color: '#ef4444' },
-]
+const STATUSES = Object.entries(STATUS_LABELS).map(([value, label]) => ({
+  value,
+  label,
+  color: STATUS_COLORS[value],
+}))
 
 export default function FilterPanel({ filters, onChange }: FilterPanelProps) {
   const [expanded, setExpanded] = useState<string | null>('price')
@@ -95,8 +95,8 @@ export default function FilterPanel({ filters, onChange }: FilterPanelProps) {
               <input
                 type="number"
                 placeholder="от"
-                value={filters.area_min ? String(Number(filters.area_min) / 100) : ''}
-                onChange={(e) => set('area_min', e.target.value ? String(Number(e.target.value) * 100) : '')}
+                value={filters.area_min !== undefined && filters.area_min !== '' ? String(Number(filters.area_min) / 100) : ''}
+                onChange={(e) => set('area_min', e.target.value !== '' ? String(Number(e.target.value) * 100) : '')}
                 className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -105,8 +105,8 @@ export default function FilterPanel({ filters, onChange }: FilterPanelProps) {
               <input
                 type="number"
                 placeholder="до"
-                value={filters.area_max ? String(Number(filters.area_max) / 100) : ''}
-                onChange={(e) => set('area_max', e.target.value ? String(Number(e.target.value) * 100) : '')}
+                value={filters.area_max !== undefined && filters.area_max !== '' ? String(Number(filters.area_max) / 100) : ''}
+                onChange={(e) => set('area_max', e.target.value !== '' ? String(Number(e.target.value) * 100) : '')}
                 className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>

@@ -1,104 +1,19 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { api, Plot } from '@/lib/api'
-
-const STATUS_COLORS: Record<string, string> = {
-  free: '#22c55e',
-  reserved: '#eab308',
-  booked: '#f97316',
-  sold: '#ef4444',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  free: 'Свободен',
-  reserved: 'В резерве',
-  booked: 'Забронирован',
-  sold: 'Продан',
-}
-
-const BASE_LAYERS = [
-  {
-    id: 'osm',
-    name: 'Схема',
-    icon: '🗺️',
-    style: {
-      version: 8 as const,
-      sources: {
-        osm: {
-          type: 'raster' as const,
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenStreetMap',
-        },
-      },
-      layers: [{ id: 'osm', type: 'raster' as const, source: 'osm' }],
-    },
-  },
-  {
-    id: 'satellite',
-    name: 'Спутник',
-    icon: '🛰️',
-    style: {
-      version: 8 as const,
-      sources: {
-        esri: {
-          type: 'raster' as const,
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-          tileSize: 256,
-          attribution: '© Esri',
-        },
-      },
-      layers: [{ id: 'esri', type: 'raster' as const, source: 'esri' }],
-    },
-  },
-  {
-    id: 'topo',
-    name: 'Топо',
-    icon: '🏔️',
-    style: {
-      version: 8 as const,
-      sources: {
-        topo: {
-          type: 'raster' as const,
-          tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenTopoMap',
-        },
-      },
-      layers: [{ id: 'topo', type: 'raster' as const, source: 'topo' }],
-    },
-  },
-  {
-    id: 'dark',
-    name: 'Тёмная',
-    icon: '🌙',
-    style: {
-      version: 8 as const,
-      sources: {
-        carto: {
-          type: 'raster' as const,
-          tiles: [
-            'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-          ],
-          tileSize: 256,
-          attribution: '© CartoDB',
-        },
-      },
-      layers: [{ id: 'carto', type: 'raster' as const, source: 'carto' }],
-    },
-  },
-]
+import { STATUS_COLORS, STATUS_LABELS, BASE_LAYERS } from '@/lib/constants'
 
 export default function PlotDetailPage() {
   const params = useParams()
   const [plot, setPlot] = useState<Plot | null>(null)
   const [loading, setLoading] = useState(true)
+  const firstLayer = BASE_LAYERS[0]!
   const [baseLayer, setBaseLayer] = useState('satellite')
+  const mapRef = useRef<maplibregl.Map | null>(null)
 
   useEffect(() => {
     if (!params.id) return
@@ -107,24 +22,26 @@ export default function PlotDetailPage() {
 
   useEffect(() => {
     if (!plot?.geometry || typeof window === 'undefined') return
+    if (mapRef.current) return
 
-    const layer = BASE_LAYERS.find((l) => l.id === baseLayer) || BASE_LAYERS[0]
-
+    const firstLayer = BASE_LAYERS[0]!
     const map = new maplibregl.Map({
       container: 'detail-map',
-      style: layer.style,
+      style: BASE_LAYERS.find((l) => l.id === baseLayer)?.style || firstLayer.style,
       center: [38.12, 55.57],
       zoom: 14,
     })
+    mapRef.current = map
 
     map.on('load', () => {
+      const geom = plot.geometry as Record<string, any> | undefined
       map.addSource('plot', {
         type: 'geojson',
         data: {
           type: 'FeatureCollection',
           features: [{
             type: 'Feature',
-            geometry: plot.geometry,
+            geometry: geom as any,
             properties: {},
           }],
         },
@@ -151,8 +68,9 @@ export default function PlotDetailPage() {
       })
 
       const bounds = new maplibregl.LngLatBounds()
-      if (plot.geometry.type === 'Polygon') {
-        plot.geometry.coordinates[0].forEach((coord: number[]) => {
+      if (geom?.type === 'Polygon') {
+        const coords = geom.coordinates as number[][][]
+        coords[0]?.forEach((coord: number[]) => {
           bounds.extend(coord as [number, number])
         })
       }
@@ -161,8 +79,8 @@ export default function PlotDetailPage() {
       }
     })
 
-    return () => map.remove()
-  }, [plot, baseLayer])
+    return () => { map.remove(); mapRef.current = null }
+  }, [plot])
 
   if (loading) return <div className="flex items-center justify-center h-screen">Загрузка...</div>
   if (!plot) return <div className="flex items-center justify-center h-screen">Участок не найден</div>
@@ -255,7 +173,13 @@ export default function PlotDetailPage() {
               {BASE_LAYERS.map((layer) => (
                 <button
                   key={layer.id}
-                  onClick={() => setBaseLayer(layer.id)}
+                  onClick={() => {
+                    setBaseLayer(layer.id)
+                    const map = mapRef.current
+                    if (map && map.isStyleLoaded()) {
+                      map.setStyle(layer.style)
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 ${
                     baseLayer === layer.id
                       ? 'bg-blue-50 text-blue-700 font-medium'

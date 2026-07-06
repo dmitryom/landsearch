@@ -4,88 +4,40 @@ import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { api, PlotGeoJSON } from '@/lib/api'
-
-const BASE_LAYERS = [
-  {
-    id: 'osm',
-    name: 'Схема',
-    icon: '🗺️',
-    style: {
-      version: 8 as const,
-      sources: {
-        osm: {
-          type: 'raster' as const,
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenStreetMap',
-        },
-      },
-      layers: [{ id: 'osm', type: 'raster' as const, source: 'osm' }],
-    },
-  },
-  {
-    id: 'satellite',
-    name: 'Спутник',
-    icon: '🛰️',
-    style: {
-      version: 8 as const,
-      sources: {
-        esri: {
-          type: 'raster' as const,
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-          tileSize: 256,
-          attribution: '© Esri',
-        },
-      },
-      layers: [{ id: 'esri', type: 'raster' as const, source: 'esri' }],
-    },
-  },
-  {
-    id: 'topo',
-    name: 'Топо',
-    icon: '🏔️',
-    style: {
-      version: 8 as const,
-      sources: {
-        topo: {
-          type: 'raster' as const,
-          tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenTopoMap',
-        },
-      },
-      layers: [{ id: 'topo', type: 'raster' as const, source: 'topo' }],
-    },
-  },
-  {
-    id: 'dark',
-    name: 'Тёмная',
-    icon: '🌙',
-    style: {
-      version: 8 as const,
-      sources: {
-        carto: {
-          type: 'raster' as const,
-          tiles: [
-            'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-            'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
-          ],
-          tileSize: 256,
-          attribution: '© CartoDB',
-        },
-      },
-      layers: [{ id: 'carto', type: 'raster' as const, source: 'carto' }],
-    },
-  },
-]
+import { BASE_LAYERS } from '@/lib/constants'
 
 export default function MapPage() {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
+  const mapReady = useRef(false)
   const [geoJSON, setGeoJSON] = useState<PlotGeoJSON | null>(null)
   const [filters, setFilters] = useState({ status: '', permitted_use: '' })
   const [baseLayer, setBaseLayer] = useState('osm')
   const [showLayers, setShowLayers] = useState(false)
+
+  const initLayers = (map: maplibregl.Map) => {
+    if (map.getSource('plots')) return
+    map.addSource('plots', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+    map.addLayer({
+      id: 'plots-fill',
+      type: 'fill',
+      source: 'plots',
+      paint: {
+        'fill-color': ['match', ['get', 'status'], 'free', '#22c55e', 'reserved', '#eab308', 'booked', '#f97316', 'sold', '#ef4444', '#22c55e'],
+        'fill-opacity': 0.5,
+        'fill-outline-color': '#fff',
+      },
+    })
+    map.addLayer({
+      id: 'plots-border',
+      type: 'line',
+      source: 'plots',
+      paint: {
+        'line-color': '#fff',
+        'line-width': 2,
+      },
+    })
+  }
 
   useEffect(() => {
     api.plots.geo(filters).then(setGeoJSON)
@@ -94,11 +46,9 @@ export default function MapPage() {
   useEffect(() => {
     if (!container.current) return
 
-    const layer = BASE_LAYERS.find((l) => l.id === baseLayer) || BASE_LAYERS[0]
-
     const map = new maplibregl.Map({
       container: container.current,
-      style: layer.style,
+      style: BASE_LAYERS[0]!.style,
       zoom: 12,
       center: [38.12, 55.57],
     })
@@ -106,35 +56,37 @@ export default function MapPage() {
     map.addControl(new maplibregl.FullscreenControl(), 'top-right')
 
     map.on('load', () => {
-      map.addSource('plots', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-      map.addLayer({
-        id: 'plots-fill',
-        type: 'fill',
-        source: 'plots',
-        paint: {
-          'fill-color': ['match', ['get', 'status'], 'free', '#22c55e', 'reserved', '#eab308', 'booked', '#f97316', 'sold', '#ef4444', '#22c55e'],
-          'fill-opacity': 0.5,
-          'fill-outline-color': '#fff',
-        },
-      })
-      map.addLayer({
-        id: 'plots-border',
-        type: 'line',
-        source: 'plots',
-        paint: {
-          'line-color': '#fff',
-          'line-width': 2,
-        },
-      })
+      mapReady.current = true
+      initLayers(map)
+      if (geoJSON) {
+        const source = map.getSource('plots') as maplibregl.GeoJSONSource
+        if (source) source.setData(geoJSON as any)
+      }
     })
 
     mapRef.current = map
-    return () => { map.remove(); mapRef.current = null }
-  }, [baseLayer])
+    return () => { map.remove(); mapRef.current = null; mapReady.current = false }
+  }, [])
+
+  const changeLayer = (id: string) => {
+    const map = mapRef.current
+    if (!map || !mapReady.current) return
+    const layer = BASE_LAYERS.find((l) => l.id === id)
+    if (!layer) return
+    setBaseLayer(id)
+    map.setStyle(layer.style)
+    map.once('style.load', () => {
+      initLayers(map)
+      if (geoJSON) {
+        const source = map.getSource('plots') as maplibregl.GeoJSONSource
+        if (source) source.setData(geoJSON as any)
+      }
+    })
+  }
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !geoJSON) return
+    if (!map || !geoJSON || !mapReady.current) return
     const source = map.getSource('plots') as maplibregl.GeoJSONSource
     if (source) source.setData(geoJSON as any)
   }, [geoJSON])
@@ -168,7 +120,7 @@ export default function MapPage() {
               {BASE_LAYERS.map((layer) => (
                 <button
                   key={layer.id}
-                  onClick={() => { setBaseLayer(layer.id); setShowLayers(false) }}
+                  onClick={() => { changeLayer(layer.id); setShowLayers(false) }}
                   className={`w-full flex items-center gap-2 px-3 py-1.5 rounded text-sm ${
                     baseLayer === layer.id ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'
                   }`}

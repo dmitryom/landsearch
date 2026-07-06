@@ -11,7 +11,6 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
-    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -86,7 +85,7 @@ class Settlement(Base):
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text)
-    geometry = Column(Geometry("POLYGON", srid=4326, spatial_index=False), nullable=True)
+    geometry = Column(Geometry(srid=4326, spatial_index=False), nullable=True)
     address = Column(String(500))
     region = Column(String(100))
     district = Column(String(100))
@@ -116,9 +115,14 @@ class Plot(Base):
     category = Column(String(100))
     permitted_use = Column(String(255))
     cadastral_value = Column(Float)
-    geometry = Column(Geometry("POLYGON", srid=4326, spatial_index=False), nullable=True)
+    geometry = Column(Geometry(srid=4326, spatial_index=False), nullable=True)
     cad_unit = Column(String(100))
     cad_status = Column(String(100))
+
+    object_type = Column(String(100))
+    land_plot_type = Column(String(100))
+    registration_date = Column(String(50))
+    ownership_form = Column(String(100))
 
     price = Column(Float)
     price_per_hectare = Column(Float)
@@ -191,6 +195,6 @@ class CadastreCache(Base):
 
     cadastral_number = Column(String(100), primary_key=True)
     data = Column(JSON, nullable=False)
-    geometry = Column(Geometry("POLYGON", srid=4326, spatial_index=False), nullable=True)
+    geometry = Column(Geometry(srid=4326, spatial_index=False), nullable=True)
     fetched_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True))

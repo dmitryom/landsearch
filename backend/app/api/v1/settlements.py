@@ -3,46 +3,16 @@ from geoalchemy2 import shape
 from shapely.geometry import mapping
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from ...core.database import get_session
-from ...models import Plot, Settlement, User
-from ...schemas import PlotResponse, SettlementResponse
-from ..deps import get_current_user
+from ...models import Plot, Settlement
+from ...schemas import SettlementResponse
+from ...utils.plot_helpers import plot_to_response
 
 router = APIRouter(prefix="/settlements", tags=["settlements"])
 
 
-def _plot_to_response(plot: Plot) -> PlotResponse:
-    geom = None
-    if plot.geometry:
-        try:
-            geom = mapping(shape.to_shape(plot.geometry))
-        except Exception:
-            pass
-    return PlotResponse(
-        id=str(plot.id),
-        tenant_id=str(plot.tenant_id),
-        cadastral_number=plot.cadastral_number,
-        address=plot.address,
-        area_m2=plot.area_m2,
-        category=plot.category,
-        permitted_use=plot.permitted_use,
-        cadastral_value=plot.cadastral_value,
-        cad_unit=plot.cad_unit,
-        price=plot.price,
-        price_per_hectare=plot.price_per_hectare,
-        status=plot.status.value if hasattr(plot.status, 'value') else plot.status,
-        title=plot.title,
-        description=plot.description,
-        geometry=geom,
-        is_active=plot.is_active,
-        created_at=plot.created_at,
-        updated_at=plot.updated_at,
-    )
-
-
-@router.get("")
+@router.get("", response_model=list[SettlementResponse])
 async def list_settlements(
     region: str | None = None,
     district: str | None = None,
@@ -92,7 +62,7 @@ async def get_settlement(
     plots_result = await session.execute(
         select(Plot).where(
             Plot.settlement_id == s.id,
-            Plot.is_active == True,
+            Plot.is_active,
         )
     )
     plots = plots_result.scalars().all()
@@ -120,6 +90,6 @@ async def get_settlement(
             "total_price": total_price,
             "avg_price_per_ha": round(total_price / (total_area / 10000), 0) if total_area else 0,
         },
-        "plots": [_plot_to_response(p) for p in plots],
+        "plots": [plot_to_response(p) for p in plots],
         "created_at": s.created_at,
     }

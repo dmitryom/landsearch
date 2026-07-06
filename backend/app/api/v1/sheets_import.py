@@ -3,9 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
 from ...core.database import get_session
-from ...models import User
+from ...models import User, UserRole
 from ...services.sheets import GoogleSheetsService, YandexTableService
-from ..deps import get_current_user, require_role
+from ..deps import require_role
 
 router = APIRouter(prefix="/import", tags=["import"])
 
@@ -15,7 +15,7 @@ async def import_google_sheets(
     spreadsheet_id: str,
     range: str = "A:Z",
     settlement_id: str | None = None,
-    current_user: User = Depends(require_role),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     api_key = settings.google_credentials_file
@@ -34,7 +34,7 @@ async def import_google_sheets(
 async def import_yandex_table(
     table_id: str,
     settlement_id: str | None = None,
-    current_user: User = Depends(require_role),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     token = settings.yandex_oauth_token

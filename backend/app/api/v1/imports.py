@@ -1,14 +1,16 @@
-from uuid import uuid4
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.database import get_session
-from ...models import Import, ImportSource, Plot, User
+from ...models import Import, ImportSource, User, UserRole
 from ...schemas import ImportResponse
 from ..deps import get_current_user, require_role
 from ...services.importer import process_excel_file
+
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 router = APIRouter(prefix="/import", tags=["import"])
 
@@ -17,13 +19,15 @@ router = APIRouter(prefix="/import", tags=["import"])
 async def import_excel(
     file: UploadFile = File(...),
     settlement_id: str | None = None,
-    current_user: User = Depends(require_role),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     if not file.filename or not file.filename.endswith((".xlsx", ".xls", ".csv")):
         raise HTTPException(status_code=400, detail="Only .xlsx, .xls, .csv files supported")
 
     content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Max 50 MB.")
     imp = Import(
         tenant_id=current_user.tenant_id,
         source=ImportSource.excel if file.filename.endswith((".xlsx", ".xls")) else ImportSource.csv,
@@ -44,7 +48,7 @@ async def import_excel(
         imp.status = "completed"
         imp.total_rows = result["total"]
         imp.success_rows = result["success"]
-        imp.completed_at = __import__("datetime").datetime.now()
+        imp.completed_at = datetime.now()
     except Exception as e:
         imp.status = "failed"
         imp.error = str(e)

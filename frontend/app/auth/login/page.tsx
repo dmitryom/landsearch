@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import { safeSet } from '@/lib/storage'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -14,7 +15,7 @@ export default function LoginPage() {
     e.preventDefault()
     try {
       const res = await api.auth.login(email, password)
-      localStorage.setItem('token', res.access_token)
+      safeSet('token', res.access_token)
       router.push('/admin')
     } catch (err: any) {
       setError(err.message || 'Ошибка входа')

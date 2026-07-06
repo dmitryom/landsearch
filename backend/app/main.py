@@ -1,24 +1,23 @@
 from contextlib import asynccontextmanager
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from .api.v1 import auth, imports, leads, plots, search, settlements, sheets_import
 from .core.config import settings
-from .core.database import engine, Base
+from .core.database import engine
+from .core.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-    except Exception as e:
-        logger.warning("Table creation (if needed): %s", e)
+    logger.info("Starting LandSearch API")
     yield
+    logger.info("Shutting down LandSearch API")
     await engine.dispose()
 
 
@@ -26,15 +25,19 @@ app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(plots.router, prefix="/api/v1")
@@ -45,8 +48,17 @@ app.include_router(leads.router, prefix="/api/v1")
 app.include_router(sheets_import.router, prefix="/api/v1")
 
 
+@app.get("/metrics")
+async def metrics():
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    return PlainTextResponse(
+        content=generate_latest(),
+        media_type=CONTENT_TYPE_LATEST,
+    )
+
+
 @app.get("/health")
-async def health():
+async def health(request: Request):
     from sqlalchemy import text
     from .core.database import async_session_factory
 

@@ -7,12 +7,19 @@ export interface Plot {
   permitted_use?: string
   cadastral_value?: number
   cad_unit?: string
+  cad_status?: string
+  object_type?: string
+  land_plot_type?: string
+  registration_date?: string
+  ownership_form?: string
   price?: number
   price_per_hectare?: number
   status: 'free' | 'reserved' | 'booked' | 'sold'
   title?: string
   description?: string
-  geometry?: any
+  geometry?: Record<string, unknown>
+  center_lng?: number
+  center_lat?: number
   created_at: string
   updated_at: string
 }
@@ -21,8 +28,8 @@ export interface PlotGeoJSON {
   type: 'FeatureCollection'
   features: Array<{
     type: 'Feature'
-    geometry: any
-    properties: Record<string, any>
+    geometry: Record<string, unknown>
+    properties: Record<string, unknown>
   }>
 }
 
@@ -59,19 +66,79 @@ export interface SearchSuggestion {
   value: string
 }
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+export interface AuthResponse {
+  access_token: string
+  refresh_token: string
+  user: {
+    id: string
+    email: string
+    full_name?: string
+    role: string
+    is_active: boolean
+  }
+}
+
+export interface LeadResponse {
+  id: string
+  plot_id: string
+  buyer_name?: string
+  buyer_phone?: string
+  buyer_email?: string
+  message?: string
+  status: string
+  created_at: string
+}
+
+export interface ImportResponse {
+  id: string
+  source: string
+  status: string
+  total_rows: number
+  success_rows: number
+  error?: string
+  created_at: string
+}
+
+export interface UserResponse {
+  id: string
+  email: string
+  full_name?: string
+  role: string
+  is_active: boolean
+}
+
+import { safeGet } from './storage'
+
+
+class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+    this.name = 'ApiError'
+  }
+}
+
+const API = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+  const token = typeof window !== 'undefined' ? safeGet('token') : null
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
   const res = await fetch(`${API}${path}`, { ...options, headers })
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err || res.statusText)
+    let message: string
+    try {
+      const err = await res.json()
+      message = err.detail || err.message || res.statusText
+    } catch {
+      message = res.statusText || `Request failed (${res.status})`
+    }
+    throw new ApiError(message, res.status)
   }
+  if (res.status === 204) return undefined as T
   return res.json()
 }
 
@@ -86,12 +153,20 @@ export const api = {
       return request<PlotGeoJSON>(`/plots/geo${qs}`)
     },
     get: (id: string) => request<Plot>(`/plots/${id}`),
-    create: (data: any) =>
+    create: (data: Partial<Plot>) =>
       request<Plot>('/plots', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: any) =>
+    update: (id: string, data: Partial<Plot>) =>
       request<Plot>(`/plots/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) =>
       request<void>(`/plots/${id}`, { method: 'DELETE' }),
+    bulkDelete: (ids: string[]) =>
+      request<{ deleted: number }>('/plots/bulk', { method: 'DELETE', body: JSON.stringify(ids) }),
+    enrich: (id: string) =>
+      request<Plot>(`/plots/${id}/enrich`, { method: 'POST' }),
+    batchEnrich: () =>
+      request<{ enriched: number }>('/plots/batch-enrich', { method: 'POST' }),
+    lookup: (cadastral_number: string) =>
+      request<Record<string, unknown>>(`/plots/lookup?cadastral_number=${encodeURIComponent(cadastral_number)}`),
   },
   settlements: {
     list: () => request<Settlement[]>('/settlements'),
@@ -103,25 +178,30 @@ export const api = {
   },
   auth: {
     login: (email: string, password: string) =>
-      request<{ access_token: string; user: any }>('/auth/login', {
+      request<AuthResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       }),
     register: (data: { email: string; password: string; full_name?: string }) =>
-      request<{ access_token: string; user: any }>('/auth/register', {
+      request<AuthResponse>('/auth/register', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
-    me: () => request<any>('/auth/me'),
+    me: () => request<UserResponse>('/auth/me'),
+    refresh: (refresh_token: string) =>
+      request<AuthResponse>('/auth/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token }),
+      }),
   },
   leads: {
     create: (data: { plot_id: string; buyer_name?: string; buyer_phone?: string; buyer_email?: string; message?: string }) =>
-      request('/leads', { method: 'POST', body: JSON.stringify(data) }),
-    list: () => request<any[]>('/leads'),
+      request<{ status: string; id: string }>('/leads', { method: 'POST', body: JSON.stringify(data) }),
+    list: () => request<LeadResponse[]>('/leads'),
   },
   imports: {
     upload: async (file: File, settlement_id?: string) => {
-      const token = localStorage.getItem('token')
+      const token = safeGet('token')
       const form = new FormData()
       form.append('file', file)
       if (settlement_id) form.append('settlement_id', settlement_id)
@@ -130,8 +210,12 @@ export const api = {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: form,
       })
-      return res.json()
+      if (!res.ok) {
+        const err = await res.text()
+        throw new ApiError(err || res.statusText, res.status)
+      }
+      return res.json() as Promise<ImportResponse>
     },
-    list: () => request<any[]>('/import'),
+    list: () => request<ImportResponse[]>('/import'),
   },
 }

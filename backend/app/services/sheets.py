@@ -2,10 +2,9 @@ import logging
 from datetime import datetime
 
 import httpx
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import Import, ImportSource, Plot
+from ..models import Import, ImportSource
 
 logger = logging.getLogger(__name__)
 
