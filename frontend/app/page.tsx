@@ -96,7 +96,7 @@ export default function HomePage() {
     loadData(filters)
   }, [filters, loadData])
 
-  const tileUrl = `${API}/plots/tiles/{z}/{x}/{y}.mvt`
+  const tileUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}${API}/plots/tiles/{z}/{x}/{y}.mvt`
 
   const initMapLayers = (map: maplibregl.Map) => {
     if (mapSourceExists(map, 'plots-tiles')) return
