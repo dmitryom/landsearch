@@ -3,6 +3,7 @@ from shapely.geometry import mapping
 
 from ..models import Plot, PlotStatus
 from ..schemas import PlotResponse
+from ..services.vri import normalize_vri
 
 
 def plot_to_response(plot: Plot) -> PlotResponse:
@@ -46,6 +47,7 @@ def plot_to_response(plot: Plot) -> PlotResponse:
         center_lng=center_lng,
         center_lat=center_lat,
         settlement_id=settlement_id,
+        vri_code=normalize_vri(plot.permitted_use),
         is_active=plot.is_active,
         created_at=plot.created_at,
         updated_at=plot.updated_at,

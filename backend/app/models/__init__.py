@@ -103,6 +103,7 @@ class Plot(Base):
         Index("idx_plots_price", "price"),
         Index("idx_plots_area", "area_m2"),
         Index("idx_plots_permitted_use", "permitted_use"),
+        Index("idx_plots_settlement_id", "settlement_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

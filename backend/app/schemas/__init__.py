@@ -98,6 +98,7 @@ class PlotResponse(BaseModel):
     center_lat: float | None = None
     is_active: bool = True
     settlement_id: str | None = None
+    vri_code: str | None = None
     created_at: datetime
     updated_at: datetime
 

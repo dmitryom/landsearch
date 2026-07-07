@@ -39,6 +39,7 @@ export interface Settlement {
   description?: string
   region?: string
   district?: string
+  geometry?: Record<string, unknown>
   plots?: Plot[]
   stats?: {
     total_plots: number
@@ -142,14 +143,48 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json()
 }
 
+export interface SettlementAnalysis {
+  settlement_id: string
+  settlement_name: string
+  total_area_m2: number
+  total_area_ha: number
+  occupied_area_m2: number
+  occupied_area_ha: number
+  occupied_percent: number
+  free_area_m2: number
+  free_area_ha: number
+  free_percent: number
+  free_zones_count: number
+  total_plots: number
+  occupied_plots_count: number
+  free_plots_count: number
+  free_zones: Array<{ zone_index: number; area_m2: number; area_ha: number; centroid: [number, number] }>
+  vri_summary: Record<string, number>
+  category_summary: Record<string, number>
+  status_summary: Record<string, number>
+  total_price: number
+  total_price_per_ha: number
+}
+
+export interface ZoningLayerInfo {
+  territorial_zone: { layer_id: number; category_id: number; title: string }
+  functional_zone: { layer_id: number; category_id: number; title: string }
+  cadastral_quarter: { layer_id: number; title: string }
+  zone_classes: Record<string, { title: string; color: string }>
+}
+
+export interface RestrictionLayersInfo {
+  groups: Record<string, Array<{ id: string; layer_id: number; category_id: number; title: string; color: string; group: string }>>
+}
+
 export const api = {
   plots: {
     list: (params?: Record<string, string>) => {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
       return request<PlotListResponse>(`/plots${qs}`)
     },
-    geo: (params?: Record<string, string>) => {
-      const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    geo: (params?: { bbox?: string; settlement_id?: string; status?: string; permitted_use?: string; cad_unit?: string }) => {
+      const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : ''
       return request<PlotGeoJSON>(`/plots/geo${qs}`)
     },
     get: (id: string) => request<Plot>(`/plots/${id}`),
@@ -171,6 +206,17 @@ export const api = {
   settlements: {
     list: () => request<Settlement[]>('/settlements'),
     get: (id: string) => request<Settlement>(`/settlements/${id}`),
+    analyze: (id: string, minArea?: number, maxArea?: number) => {
+      const params = new URLSearchParams()
+      if (minArea) params.set('min_area', String(minArea))
+      if (maxArea) params.set('max_area', String(maxArea))
+      const qs = params.toString() ? '?' + params.toString() : ''
+      return request<SettlementAnalysis>(`/settlements/${id}/analysis${qs}`)
+    },
+  },
+  layers: {
+    zoning: () => request<ZoningLayerInfo>('/layers/zoning'),
+    restrictions: () => request<RestrictionLayersInfo>('/layers/restrictions'),
   },
   search: {
     suggest: (q: string) =>

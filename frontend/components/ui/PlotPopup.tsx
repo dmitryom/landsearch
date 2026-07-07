@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { X } from 'lucide-react'
-import { STATUS_LABELS, STATUS_STYLES, normalizeVRI, vriColor } from '@/lib/constants'
+import { X, BarChart3 } from 'lucide-react'
+import { STATUS_LABELS, STATUS_STYLES, vriColor } from '@/lib/constants'
 import { api } from '@/lib/api'
+import Link from 'next/link'
 
 export default function PlotPopup({
   plot,
@@ -65,13 +66,19 @@ export default function PlotPopup({
               </span>
             </div>
           )}
-          {plot.permitted_use && (
+          {plot.use && (
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-500">ВРИ</span>
               <span className="text-sm font-medium flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm inline-block shrink-0" style={{ backgroundColor: vriColor(plot.permitted_use) }} />
-                {plot.permitted_use}
+                <span className="w-2.5 h-2.5 rounded-sm inline-block shrink-0" style={{ backgroundColor: vriColor(plot.vri_code || plot.use) }} />
+                {plot.use}
               </span>
+            </div>
+          )}
+          {plot.vri_code && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Код ВРИ</span>
+              <span className="text-sm font-medium">{plot.vri_code}</span>
             </div>
           )}
           {plot.category && (
@@ -100,7 +107,19 @@ export default function PlotPopup({
           </div>
         </div>
 
-        <div className="mt-4 space-y-2">
+        {plot.settlement_id && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <Link
+              href={`/settlements/${plot.settlement_id}`}
+              className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              <BarChart3 className="w-4 h-4" />
+              Анализ поселения
+            </Link>
+          </div>
+        )}
+
+        <div className="mt-3 space-y-2">
           <a
             href={`/plots/${plot.id}`}
             className="block text-center px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"

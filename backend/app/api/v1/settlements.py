@@ -1,13 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from geoalchemy2 import shape
 from shapely.geometry import mapping
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.database import get_session
-from ...models import Plot, Settlement
+from ...models import Plot, Settlement, User
 from ...schemas import SettlementResponse
 from ...utils.plot_helpers import plot_to_response
+from ...services.analysis import analyze_settlement
+from ..deps import get_current_user_optional
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settlements", tags=["settlements"])
 
@@ -93,3 +99,23 @@ async def get_settlement(
         "plots": [plot_to_response(p) for p in plots],
         "created_at": s.created_at,
     }
+
+
+@router.get("/{settlement_id}/analysis")
+async def settlement_analysis(
+    settlement_id: str,
+    min_area: float | None = Query(None, description="Мин. площадь свободной зоны, кв.м"),
+    max_area: float | None = Query(None, description="Макс. площадь свободной зоны, кв.м"),
+    session: AsyncSession = Depends(get_session),
+    current_user: User | None = Depends(get_current_user_optional),
+):
+    try:
+        report = await analyze_settlement(
+            session, settlement_id, current_user=current_user, min_area=min_area, max_area=max_area
+        )
+        return report
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.exception("Analysis failed for settlement %s", settlement_id)
+        raise HTTPException(status_code=500, detail=str(e))

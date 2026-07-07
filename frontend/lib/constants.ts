@@ -161,20 +161,30 @@ export function vriColor(use: string | null | undefined): string {
   return VRI_COLORS[normalizeVRI(use)] || VRI_DEFAULT_COLOR
 }
 
-/* ── MapLibre match-выражения для раскраски по ВРИ ── */
-// Возвращает [ 'match', ['get', 'use'], ...pairs..., default ]
-export function buildVriMatchExpression(attr: string, colorMap: Record<string, string>, defaultColor = VRI_DEFAULT_COLOR): any[] {
-  const expr: any[] = ['match', ['get', attr]]
-  // VRI_RULES имеет множество ключевых слов для каждого кода; добавляем
-  // код целиком как кэшированное значение если нормализация уже применена
-  // в данных тайла. Пока используем простой match по use-полю (сырое значение).
-  // На серверной стороне или через expression это сложно; для MVT используем
-  // lookup через prepared зная, что use может быть любым текстом.
-  // Вместо match используем in + case — но в MapLibre нет сложной логики.
-  // Выход: все цвета в match как fallback, а нормализация будет кэширована
-  // в отдельном атрибуте vri_code на стороне MVT в будущем.
-  // Пока возвращаем defaultColor — правильная раскраска потребует
-  // нормализации на стороне бэкенда.
+/* ── MapLibre match-выражения для раскраски MVT слоёв по vri_code ── */
+
+const _darken = (hex: string): string => {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `#${[r, g, b].map(c => Math.round(c * 0.6).toString(16).padStart(2, '0')).join('')}`
+}
+
+export function buildVriFillExpr(): any[] {
+  const expr: any[] = ['match', ['get', 'vri_code']]
+  for (const [code, color] of Object.entries(VRI_COLORS)) {
+    expr.push(code, color)
+  }
+  expr.push(VRI_DEFAULT_COLOR)
+  return expr
+}
+
+export function buildVriBorderExpr(): any[] {
+  const expr: any[] = ['match', ['get', 'vri_code']]
+  for (const [code, color] of Object.entries(VRI_COLORS)) {
+    expr.push(code, _darken(color))
+  }
+  expr.push(_darken(VRI_DEFAULT_COLOR))
   return expr
 }
 

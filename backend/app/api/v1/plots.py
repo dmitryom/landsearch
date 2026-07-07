@@ -116,13 +116,14 @@ async def _get_redis():
 @router.get("/geo", response_model=PlotGeoJSON)
 async def plots_geojson(
     bbox: str | None = Query(None, description="min_lng,min_lat,max_lng,max_lat"),
+    settlement_id: str | None = None,
     status: str | None = None,
     permitted_use: str | None = None,
     cad_unit: str | None = None,
     session: AsyncSession = Depends(get_session),
 ):
     cache = await _get_redis()
-    cache_key = _cache_key("plots:geo", bbox=bbox, status=status, permitted_use=permitted_use, cad_unit=cad_unit)
+    cache_key = _cache_key("plots:geo", bbox=bbox, settlement_id=settlement_id, status=status, permitted_use=permitted_use, cad_unit=cad_unit)
 
     if cache:
         try:
@@ -135,6 +136,12 @@ async def plots_geojson(
     CACHE_MISSES.labels(cache_type="redis").inc()
 
     stmt = select(Plot).where(Plot.is_active, Plot.geometry.isnot(None))
+
+    if settlement_id:
+        try:
+            stmt = stmt.where(Plot.settlement_id == UUID(settlement_id))
+        except ValueError:
+            raise BadRequestException("Invalid settlement_id")
 
     if bbox:
         try:
@@ -336,7 +343,8 @@ async def plot_tiles(
             p.object_type AS obj_type,
             p.cad_unit AS cad_unit,
             p.category AS category,
-            p.cadastral_value AS cad_value
+            p.cadastral_value AS cad_value,
+            p.settlement_id::text AS settlement_id
         FROM plots p
         WHERE {' AND '.join(where_clauses)}
     ) AS mvt
