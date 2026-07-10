@@ -2,24 +2,20 @@
 
 ## Goal
 
-Turn the existing settlement screen into a LandScanner-style interactive sales map for the `Корнер Брайт` settlement. It must show the full surrounding cadastral parcel grid while keeping the project's 12 sale plots prominent and actionable.
+Publish the actual LandScanner settlement-map artifact for the `Корнер Брайт` settlement under the LandSearch domain. The map must use the LandScanner engine's vector parcel collection, cadastral quarters, filters, labels, selection highlight, and property popups.
 
 ## Map Composition
 
-The settlement page at `/settlements/[id]` uses the existing MapLibre base maps. A `Кадастр ЕГРН` switch enables a neutral, transparent WMS overlay of parcel boundaries at zoom 13 and above. It is enabled by default when the zoom threshold is reached. The overlay never replaces the base map or the application's sale plots.
-
-Sale plots are drawn above the cadastral overlay with status colors: free, reserved, booked, and sold. Their border remains visible against satellite and scheme base maps. Selecting a sale plot highlights it and opens a compact property card with cadastral number, status, area, price, and a link to the existing plot page. The map fits the settlement boundary, not a hard-coded city center.
+LandScanner receives the exact saved geometry of the LandSearch settlement as a boundary override and runs its existing settlement-analysis pipeline offline. The generated `full_map.html` contains its normal MapLibre layers: parcel polygons, nearby parcels, cadastral quarters, permitted-use and ownership filters, labels, ZOUIT, a cadastral-number search, and selected-plot highlighting. LandSearch links to the published map from the settlement page.
 
 ## Data and Service Boundary
 
-The backend owns access to the external cadastral WMS. Nginx exposes a same-origin, parameter-restricted tile endpoint; the frontend may request only `{z}/{x}/{y}` tiles and cannot choose an arbitrary upstream URL. Nginx sends the required upstream request metadata, applies short cache headers, and has rate and timeout limits.
-
-The proxy must validate the upstream TLS chain. It must not disable certificate verification. If the upstream or cache is unavailable, the overlay is silently omitted and the map, sale plots, and property cards continue to work. A non-blocking unavailable state is shown only after a requested overlay fails.
+The scan is an explicit offline generation step, never a request made while a visitor opens the map. It runs under the existing `landscanner` service account, validates TLS through the engine's configured client, and produces a static artifact. LandSearch serves only the finished artifact; a failed or stale generation leaves the existing site and settlement analytics available.
 
 ## User Experience
 
-The map toolbar contains base-map selection and a labelled cadastral toggle. The legend distinguishes `Кадастровые границы ЕГРН` from sale-status colors. On touch devices, the selected plot card opens from the bottom; on desktop, it occupies a fixed side panel without covering the map controls.
+The LandSearch settlement page exposes a clear `Карта посёлка` command. The target is the full-screen LandScanner map; its existing responsive summary panel, layer controls, filters, legend, and map popups remain intact.
 
 ## Verification
 
-Tests cover tile URL construction, overlay toggle state, the zoom threshold, and sale-plot layer ordering. Production smoke checks verify the WMS proxy returns an image with trusted TLS, the cadastral overlay visibly loads over all base maps, every Corner Bright sale plot remains selectable, and map failure does not hide application data.
+Tests cover the boundary-override generator, artifact publication path, and the settlement-page map command. Production smoke checks verify a generated artifact contains the expected LandScanner parcel and quarter layers, the map opens at its LandSearch URL, and a known Corner Bright sale plot is selectable.

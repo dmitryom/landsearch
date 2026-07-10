@@ -6,8 +6,10 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { api, type SettlementAnalysis, type PlotGeoJSON } from '@/lib/api'
 import { STATUS_COLORS, BASE_LAYERS } from '@/lib/constants'
-import { Home, ArrowLeft } from 'lucide-react'
+import { Home, ArrowLeft, Map as MapIcon } from 'lucide-react'
 import Link from 'next/link'
+
+const LANDSCANNER_MAP_SETTLEMENT_ID = 'eafe5fc4-165f-421e-aa79-3ae786458627'
 
 export default function SettlementAnalysisPage() {
   const { id } = useParams<{ id: string }>()
@@ -117,6 +119,15 @@ export default function SettlementAnalysisPage() {
           <Home className="w-5 h-5 text-white" />
         </div>
         <h1 className="text-lg font-bold text-gray-900">Поселение</h1>
+        {id === LANDSCANNER_MAP_SETTLEMENT_ID && (
+          <Link
+            href={`/settlements/${id}/map`}
+            className="ml-auto inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            <MapIcon className="h-4 w-4" />
+            Карта посёлка
+          </Link>
+        )}
       </header>
 
       {/* Map */}
