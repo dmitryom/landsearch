@@ -140,3 +140,24 @@ curl -sk "https://host/api/v1/plots/geo?bbox=48,54,54,57" | python3 -c "import s
 # Ошибки 5xx в nginx
 grep " 5[0-9][0-9] " /var/log/nginx/access.log | wc -l
 ```
+
+## Публикация карты LandScanner
+
+Карта КП «Корнер Брайт» генерируется офлайн через LandScanner и не запускает
+сканирование НСПД во время открытия страницы.
+
+```bash
+install -d -o landscanner -g landscanner /var/lib/landscanner/artifacts/corner-bright
+curl -fsS https://v3163460.hosted-by-vdsina.ru/api/v1/settlements/eafe5fc4-165f-421e-aa79-3ae786458627 \
+  | /opt/landscanner/venv/bin/python -c 'import json, sys; print(json.dumps(json.load(sys.stdin)["geometry"]))' \
+  > /var/lib/landscanner/artifacts/corner-bright/boundary.geojson
+cd /var/lib/landscanner/artifacts/corner-bright
+runuser -u landscanner -- /opt/landscanner/venv/bin/python /opt/landscanner/app/deploy/generate_one.py \
+  'Корнер Брайт' --boundary-file boundary.geojson
+bash /root/landsearch/scripts/publish-landscanner-map.sh \
+  settlement_корнер_брайт_map.html /var/www/landsearch/settlement-maps/corner-bright/full_map.html
+curl -fsSI https://v3163460.hosted-by-vdsina.ru/settlements/eafe5fc4-165f-421e-aa79-3ae786458627/map
+```
+
+Проверка после публикации: ответ карты `200`, HTML не содержит `unpkg.com`, а
+страница содержит слои `plots-cad-suffix` и `cadastral-quarters`.
