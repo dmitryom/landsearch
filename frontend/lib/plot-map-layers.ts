@@ -78,12 +78,13 @@ export function addPlotTileLayers(map: maplibregl.Map, tileUrl: string): void {
       type: 'circle',
       source: PLOT_TILE_SOURCE_ID,
       'source-layer': PLOT_TILE_SOURCE_LAYER,
+      minzoom: 16,
       paint: {
         'circle-color': buildVriFillExpr() as any,
-        'circle-radius': 6,
+        'circle-radius': 4,
         'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2,
-        'circle-opacity': 0.9,
+        'circle-stroke-width': 1.2,
+        'circle-opacity': 0.75,
       },
     })
   }
