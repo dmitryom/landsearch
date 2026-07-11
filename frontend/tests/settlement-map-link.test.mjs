@@ -9,12 +9,19 @@ import test from 'node:test'
 
 const settlementPage = new URL('../app/settlements/[id]/page.tsx', import.meta.url)
 const homePage = new URL('../app/page.tsx', import.meta.url)
+const plotDetailPage = new URL('../app/plots/[id]/page.tsx', import.meta.url)
 const loginPage = new URL('../app/auth/login/page.tsx', import.meta.url)
+const adminLayout = new URL('../app/admin/layout.tsx', import.meta.url)
+const adminDashboardPage = new URL('../app/admin/page.tsx', import.meta.url)
+const adminLeadsPage = new URL('../app/admin/leads/page.tsx', import.meta.url)
 const mapViewComponent = new URL('../components/MapView.tsx', import.meta.url)
 const layerSwitcherComponent = new URL('../components/LayerSwitcher.tsx', import.meta.url)
 const plotCardListComponent = new URL('../components/PlotCardList.tsx', import.meta.url)
+const leadFormComponent = new URL('../components/ui/LeadForm.tsx', import.meta.url)
+const logPanelComponent = new URL('../components/ui/LogPanel.tsx', import.meta.url)
 const searchBarComponent = new URL('../components/ui/SearchBar.tsx', import.meta.url)
 const plotMapLayersModule = new URL('../lib/plot-map-layers.ts', import.meta.url)
+const apiClient = new URL('../lib/api.ts', import.meta.url)
 const constantsModule = new URL('../lib/constants.ts', import.meta.url)
 const mapTilesModule = new URL('../lib/map-tiles.ts', import.meta.url)
 const nginxMapLocation = new URL('../../deploy/nginx/corner-bright-landscanner-map.conf', import.meta.url)
@@ -83,6 +90,7 @@ test('home land search filters are applied to map vector tile requests', async (
   const mapView = await readFile(mapViewComponent, 'utf8')
   const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
   const plotLayers = await readFile(plotMapLayersModule, 'utf8')
+  const mapTiles = await readFile(mapTilesModule, 'utf8')
 
   assert.match(home, /<MapView[\s\S]*filters=\{filters\}/)
   assert.match(home, /<LayerSwitcher[\s\S]*filters=\{filters\}/)
@@ -90,6 +98,7 @@ test('home land search filters are applied to map vector tile requests', async (
   assert.match(layerSwitcher, /buildPlotTileUrl\(filters\)/)
   assert.match(mapView, /updatePlotTileUrl\(map, tileUrl\)/)
   assert.match(plotLayers, /source\.setTiles\(\[tileUrl\]\)/)
+  assert.match(mapTiles, /'category'/)
 })
 
 test('home plot boundaries use the LandScanner parcel layer style', async () => {
@@ -123,6 +132,88 @@ test('home map does not show cancelled vector tile loads as user-facing errors',
   assert.match(mapView, /message === 'AbortError'/)
   assert.match(mapView, /if \(isAbortError\(e\.error\)\) return/)
   assert.match(mapView, /log\('error', 'MapLibre error'/)
+})
+
+test('diagnostic logs panel is gated behind explicit debug flag', async () => {
+  const logPanel = await readFile(logPanelComponent, 'utf8')
+
+  assert.match(logPanel, /NEXT_PUBLIC_DEBUG_LOGS/)
+  assert.match(logPanel, /if \(!debugLogs\) return null/)
+})
+
+test('plot detail uses a real lead form instead of prompt or tel handoff', async () => {
+  const detail = await readFile(plotDetailPage, 'utf8')
+  const leadForm = await readFile(leadFormComponent, 'utf8')
+
+  assert.match(detail, /<LeadForm[\s\S]*plotId=\{plot\.id\}/)
+  assert.doesNotMatch(detail, /prompt\(/)
+  assert.doesNotMatch(detail, /tel:/)
+  assert.match(leadForm, /api\.leads\.create/)
+  assert.match(leadForm, /buyer_phone/)
+  assert.match(leadForm, /buyer_email/)
+})
+
+test('plot detail map restores the selected plot layer after base-layer switches', async () => {
+  const detail = await readFile(plotDetailPage, 'utf8')
+  const styleSwitchIndex = detail.indexOf('map.setStyle(layer.style)')
+  const styleSwitchBlock = detail.slice(Math.max(0, styleSwitchIndex - 500), styleSwitchIndex + 700)
+
+  assert.match(detail, /detailMapContainerRef/)
+  assert.match(detail, /addDetailPlotLayer\(map, plot/)
+  assert.match(detail, /setData\(\{[\s\S]*type: 'FeatureCollection'/)
+  assert.doesNotMatch(detail, /id="detail-map" className="absolute inset-0"/)
+  assert.notEqual(styleSwitchIndex, -1)
+  assert.match(styleSwitchBlock, /map\.once\('style\.load', reinit\)/)
+  assert.match(styleSwitchBlock, /setTimeout\(reinit, 500\)/)
+})
+
+test('admin leads page lists leads and updates lifecycle status', async () => {
+  const layout = await readFile(adminLayout, 'utf8')
+  const leads = await readFile(adminLeadsPage, 'utf8')
+  const api = await readFile(apiClient, 'utf8')
+
+  assert.match(layout, /\/admin\/leads/)
+  assert.match(leads, /api\.leads\.list\(\)/)
+  assert.match(leads, /api\.leads\.update\(leadId/)
+  assert.match(leads, /plot_cadastral_number/)
+  assert.match(api, /export type LeadStatus = 'new' \| 'in_progress' \| 'closed' \| 'spam'/)
+  assert.match(api, /update: \(id: string, data: \{ status: LeadStatus \}\)/)
+})
+
+test('admin dashboard uses tenant-wide stats endpoint instead of first page totals', async () => {
+  const dashboard = await readFile(adminDashboardPage, 'utf8')
+  const api = await readFile(apiClient, 'utf8')
+
+  assert.match(api, /stats: \(\) => request<PlotStatsResponse>\('\/plots\/stats'\)/)
+  assert.match(dashboard, /api\.plots\.stats\(\)/)
+  assert.match(dashboard, /data_quality/)
+  assert.doesNotMatch(dashboard, /page_size:\s*'200'/)
+})
+
+test('plot cards support saved favorites, comparison drawer and CSV export', async () => {
+  const plotCards = await readFile(plotCardListComponent, 'utf8')
+
+  assert.match(plotCards, /landsearch:favorites/)
+  assert.match(plotCards, /landsearch:compare/)
+  assert.match(plotCards, /safeGet/)
+  assert.match(plotCards, /safeSet/)
+  assert.match(plotCards, /Star/)
+  assert.match(plotCards, /Scale/)
+  assert.match(plotCards, /comparePlots/)
+  assert.match(plotCards, /downloadCompareCsv/)
+})
+
+test('home filters keep URL state and expose result sorting controls', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const filterPanel = await readFile(new URL('../components/ui/FilterPanel.tsx', import.meta.url), 'utf8')
+
+  assert.match(home, /filtersReady/)
+  assert.match(home, /window\.history\.replaceState/)
+  assert.match(home, /new URLSearchParams\(window\.location\.search\)/)
+  assert.match(filterPanel, /sort_by/)
+  assert.match(filterPanel, /sort_order/)
+  assert.match(filterPanel, /created_at/)
+  assert.match(filterPanel, /area_m2/)
 })
 
 test('home search passes plot result bounds to MapView and displays API total', async () => {

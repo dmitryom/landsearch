@@ -28,6 +28,30 @@ async def test_list_plots_with_filters(client: AsyncClient):
 
 
 @pytest.mark.asyncio
+async def test_list_plots_filters_by_category(client: AsyncClient, auth_headers: dict[str, str]):
+    cn = _unique_cn()
+    create_res = await client.post(
+        "/api/v1/plots",
+        json={
+            "cadastral_number": cn,
+            "price": 1000000,
+            "area_m2": 900,
+            "status": "free",
+            "category": "Земли промышленности",
+        },
+        headers=auth_headers,
+    )
+    assert create_res.status_code == 201
+
+    res = await client.get("/api/v1/plots?category=промышленности&page_size=20")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] >= 1
+    assert any(plot["cadastral_number"] == cn for plot in data["items"])
+    assert all("промышленности" in (plot["category"] or "").lower() for plot in data["items"])
+
+
+@pytest.mark.asyncio
 async def test_get_plot_by_id(client: AsyncClient):
     list_res = await client.get("/api/v1/plots?page_size=1")
     plot_id = list_res.json()["items"][0]["id"]
@@ -59,6 +83,20 @@ async def test_plots_geo(client: AsyncClient):
     data = res.json()
     assert data["type"] == "FeatureCollection"
     assert "features" in data
+
+
+@pytest.mark.asyncio
+async def test_plot_stats_cover_full_tenant(client: AsyncClient, auth_headers: dict[str, str]):
+    list_res = await client.get("/api/v1/plots?page_size=1")
+    expected_total = list_res.json()["total"]
+
+    res = await client.get("/api/v1/plots/stats", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total"] == expected_total
+    assert data["by_status"]["free"] >= 1
+    assert "missing_geometry" in data["data_quality"]
+    assert "missing_price" in data["data_quality"]
 
 
 @pytest.mark.asyncio

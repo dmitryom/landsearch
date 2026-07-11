@@ -15,9 +15,11 @@ const CAT_COLORS: Record<string, string> = {
 export default function LogPanel() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [open, setOpen] = useState(false)
+  const debugLogs = process.env.NEXT_PUBLIC_DEBUG_LOGS === '1'
 
   useEffect(() => subscribeLogs(setLogs), [])
 
+  if (!debugLogs) return null
   if (logs.length === 0 && !open) return null
 
   return (

@@ -16,6 +16,20 @@ import PlotCardList from '@/components/PlotCardList'
 import { log } from '@/lib/logger'
 import { getGeometryBounds, getPlotBounds, type PlotBounds } from '@/lib/plot-bounds'
 
+const URL_FILTER_KEYS = [
+  'query',
+  'settlement_id',
+  'status',
+  'permitted_use',
+  'category',
+  'price_min',
+  'price_max',
+  'area_min',
+  'area_max',
+  'sort_by',
+  'sort_order',
+] as const
+
 export default function HomePage() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const loadIdRef = useRef(0)
@@ -26,6 +40,7 @@ export default function HomePage() {
   const [selectedBounds, setSelectedBounds] = useState<PlotBounds | null>(null)
   const [selectedPlot, setSelectedPlot] = useState<any>(null)
   const [filters, setFilters] = useState<Record<string, string>>({})
+  const [filtersReady, setFiltersReady] = useState(false)
   const [showFilters, setShowFilters] = useState(true)
   const [baseLayer, setBaseLayer] = useState('osm')
   const [loading, setLoading] = useState(true)
@@ -58,7 +73,32 @@ export default function HomePage() {
     }
   }, [])
 
-  useEffect(() => { loadData(filters) }, [filters, loadData])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const initialFilters: Record<string, string> = {}
+    for (const key of URL_FILTER_KEYS) {
+      const value = params.get(key)
+      if (value) initialFilters[key] = value
+    }
+    setFilters(initialFilters)
+    setFiltersReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!filtersReady) return
+    loadData(filters)
+  }, [filters, filtersReady, loadData])
+
+  useEffect(() => {
+    if (!filtersReady) return
+    const params = new URLSearchParams()
+    for (const key of URL_FILTER_KEYS) {
+      const value = filters[key]?.trim()
+      if (value) params.set(key, value)
+    }
+    const query = params.toString()
+    window.history.replaceState(null, '', query ? `/?${query}` : '/')
+  }, [filters, filtersReady])
 
   const handleFiltersChange = (nextFilters: Record<string, string>) => {
     selectionRequestIdRef.current += 1

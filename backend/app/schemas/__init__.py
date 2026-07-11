@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -114,6 +114,16 @@ class PlotListResponse(BaseModel):
     page_size: int
 
 
+class PlotStatsResponse(BaseModel):
+    total: int
+    by_status: dict[str, int]
+    total_area_m2: float
+    total_area_ha: float
+    total_price: float
+    avg_price_per_m2: float | None = None
+    data_quality: dict[str, int]
+
+
 class PlotGeoJSON(BaseModel):
     type: str = "FeatureCollection"
     features: list[dict]
@@ -140,6 +150,7 @@ class PlotSearchParams(BaseModel):
     settlement_id: str | None = None
     status: str | None = None
     permitted_use: str | None = None
+    category: str | None = None
     price_min: float | None = Field(None, ge=0)
     price_max: float | None = Field(None, ge=0)
     area_min: float | None = Field(None, ge=0)
@@ -172,6 +183,13 @@ class LeadCreate(BaseModel):
     message: str | None = None
 
 
+LeadStatus = Literal["new", "in_progress", "closed", "spam"]
+
+
+class LeadUpdate(BaseModel):
+    status: LeadStatus
+
+
 class LeadResponse(BaseModel):
     id: str
     plot_id: str
@@ -180,6 +198,10 @@ class LeadResponse(BaseModel):
     buyer_email: str | None = None
     message: str | None = None
     status: str = "new"
+    plot_title: str | None = None
+    plot_cadastral_number: str | None = None
+    plot_status: str | None = None
+    plot_price: float | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

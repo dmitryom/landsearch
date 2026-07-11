@@ -11,6 +11,13 @@ interface FilterPanelProps {
 const PERMITTED_USES = ['ИЖС', 'ЛПХ', 'СНТ', 'ДНП', 'ОГП', 'Коммерция']
 const CATEGORIES = ['Земли населённых пунктов', 'Земли сельхозназначения', 'Земли промышленности']
 
+const SORT_FIELDS = [
+  { value: 'created_at', label: 'Сначала новые' },
+  { value: 'price', label: 'По цене' },
+  { value: 'area_m2', label: 'По площади' },
+  { value: 'cadastral_number', label: 'По кадастровому номеру' },
+]
+
 const STATUSES = Object.entries(STATUS_LABELS).map(([value, label]) => ({
   value,
   label,
@@ -65,6 +72,34 @@ export default function FilterPanel({ filters, onChange }: FilterPanelProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        <Section id="sort" title="Сортировка">
+          <div className="space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-500">Поле</span>
+              <select
+                value={filters.sort_by || 'created_at'}
+                onChange={(e) => set('sort_by', e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {SORT_FIELDS.map((field) => (
+                  <option key={field.value} value={field.value}>{field.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-500">Порядок</span>
+              <select
+                value={filters.sort_order || 'desc'}
+                onChange={(e) => set('sort_order', e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="desc">По убыванию</option>
+                <option value="asc">По возрастанию</option>
+              </select>
+            </label>
+          </div>
+        </Section>
+
         <Section id="price" title="Цена, ₽">
           <div className="flex gap-2">
             <div className="flex-1">

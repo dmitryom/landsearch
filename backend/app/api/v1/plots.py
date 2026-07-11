@@ -14,7 +14,7 @@ from ...core.database import get_session
 from ...core.exceptions import BadRequestException, NotFoundException
 from ...metrics import CACHE_HITS, CACHE_MISSES, PLOTS_GEO_TOTAL
 from ...models import Plot, PlotStatus, Settlement, User
-from ...schemas import PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotUpdate
+from ...schemas import PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotStatsResponse, PlotUpdate
 from ...services.cadastre import batch_enrich, enrich_from_cadastre, lookup_cadastre
 from ...services.similar import find_similar_plots
 from ...utils.plot_helpers import plot_to_response
@@ -85,6 +85,7 @@ async def list_plots(
     settlement_id: str | None = None,
     status: str | None = None,
     permitted_use: str | None = None,
+    category: str | None = None,
     price_min: float | None = None,
     price_max: float | None = None,
     area_min: float | None = None,
@@ -110,6 +111,8 @@ async def list_plots(
         stmt = stmt.where(Plot.status == status)
     if permitted_use:
         stmt = stmt.where(Plot.permitted_use.ilike(f"%{permitted_use}%"))
+    if category:
+        stmt = stmt.where(Plot.category.ilike(f"%{category}%"))
     if price_min is not None:
         stmt = stmt.where(Plot.price >= price_min)
     if price_max is not None:
@@ -162,6 +165,7 @@ async def plots_geojson(
     settlement_id: str | None = None,
     status: str | None = None,
     permitted_use: str | None = None,
+    category: str | None = None,
     cad_unit: str | None = None,
     session: AsyncSession = Depends(get_session),
     tenant_id: UUID | None = Depends(get_tenant_scope_optional),
@@ -175,6 +179,7 @@ async def plots_geojson(
         settlement_id=settlement_id,
         status=status,
         permitted_use=permitted_use,
+        category=category,
         cad_unit=cad_unit,
     )
 
@@ -216,6 +221,8 @@ async def plots_geojson(
         stmt = stmt.where(Plot.status == status)
     if permitted_use:
         stmt = stmt.where(Plot.permitted_use.ilike(f"%{permitted_use}%"))
+    if category:
+        stmt = stmt.where(Plot.category.ilike(f"%{category}%"))
     if cad_unit:
         stmt = stmt.where(Plot.cad_unit.like(f"{cad_unit}%"))
 
@@ -302,6 +309,7 @@ async def plot_tiles(
     settlement_id: str | None = None,
     status: str | None = None,
     permitted_use: str | None = None,
+    category: str | None = None,
     cad_unit: str | None = None,
     session: AsyncSession = Depends(get_session),
     tenant_id: UUID | None = Depends(get_tenant_scope_optional),
@@ -315,7 +323,7 @@ async def plot_tiles(
     settlement_uuid = _parse_uuid(settlement_id, "settlement_id") if settlement_id else None
     cache_key = (
         f"landsearch:tiles:{tenant_cache_part}:{z}/{x}/{y}:"
-        f"{normalized_query or ''}:{settlement_uuid or ''}:{status or ''}:{permitted_use or ''}:{cad_unit or ''}"
+        f"{normalized_query or ''}:{settlement_uuid or ''}:{status or ''}:{permitted_use or ''}:{category or ''}:{cad_unit or ''}"
     )
 
     if cache:
@@ -346,6 +354,9 @@ async def plot_tiles(
     if permitted_use:
         where_clauses.append("p.permitted_use ILIKE :permitted_use")
         params["permitted_use"] = f"%{permitted_use}%"
+    if category:
+        where_clauses.append("p.category ILIKE :category")
+        params["category"] = f"%{category}%"
     if cad_unit:
         where_clauses.append("p.cad_unit LIKE :cad_unit")
         params["cad_unit"] = f"{cad_unit}%"
@@ -447,6 +458,63 @@ async def plot_tiles(
         content=mvt_data,
         media_type="application/vnd.mapbox-vector-tile",
         headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
+@router.get("/stats", response_model=PlotStatsResponse)
+async def plot_stats(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    filters = (Plot.tenant_id == current_user.tenant_id, Plot.is_active)
+
+    totals_result = await session.execute(
+        select(
+            func.count(Plot.id),
+            func.coalesce(func.sum(Plot.area_m2), 0),
+            func.coalesce(func.sum(Plot.price), 0),
+        ).where(*filters)
+    )
+    total, total_area_m2, total_price = totals_result.one()
+
+    status_result = await session.execute(
+        select(Plot.status, func.count(Plot.id))
+        .where(*filters)
+        .group_by(Plot.status)
+    )
+    by_status = {
+        status.value if isinstance(status, PlotStatus) else str(status): count
+        for status, count in status_result.all()
+    }
+    for status in PlotStatus:
+        by_status.setdefault(status.value, 0)
+
+    quality_result = await session.execute(
+        select(
+            func.count(Plot.id).filter(Plot.geometry.is_(None)),
+            func.count(Plot.id).filter(Plot.price.is_(None)),
+            func.count(Plot.id).filter(Plot.area_m2.is_(None)),
+            func.count(Plot.id).filter(Plot.category.is_(None)),
+        ).where(*filters)
+    )
+    missing_geometry, missing_price, missing_area, missing_category = quality_result.one()
+
+    total_area_m2 = float(total_area_m2 or 0)
+    total_price = float(total_price or 0)
+
+    return PlotStatsResponse(
+        total=total,
+        by_status=by_status,
+        total_area_m2=total_area_m2,
+        total_area_ha=total_area_m2 / 10000,
+        total_price=total_price,
+        avg_price_per_m2=total_price / total_area_m2 if total_area_m2 else None,
+        data_quality={
+            "missing_geometry": missing_geometry,
+            "missing_price": missing_price,
+            "missing_area": missing_area,
+            "missing_category": missing_category,
+        },
     )
 
 

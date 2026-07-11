@@ -8,6 +8,7 @@ import { safeGet, safeRemove } from '@/lib/storage'
 const NAV_ITEMS = [
   { key: '/admin', label: 'Дашборд' },
   { key: '/admin/plots', label: 'Участки' },
+  { key: '/admin/leads', label: 'Лиды' },
   { key: '/admin/import', label: 'Импорт' },
   { key: '/admin/settings', label: 'Настройки' },
 ]

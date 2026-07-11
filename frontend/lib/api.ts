@@ -60,6 +60,21 @@ export interface PlotListResponse {
   page_size: number
 }
 
+export interface PlotStatsResponse {
+  total: number
+  by_status: Record<Plot['status'], number>
+  total_area_m2: number
+  total_area_ha: number
+  total_price: number
+  avg_price_per_m2?: number
+  data_quality: {
+    missing_geometry: number
+    missing_price: number
+    missing_area: number
+    missing_category: number
+  }
+}
+
 export interface SearchSuggestion {
   type: 'plot' | 'settlement'
   id: string
@@ -79,6 +94,8 @@ export interface AuthResponse {
   }
 }
 
+export type LeadStatus = 'new' | 'in_progress' | 'closed' | 'spam'
+
 export interface LeadResponse {
   id: string
   plot_id: string
@@ -86,7 +103,11 @@ export interface LeadResponse {
   buyer_phone?: string
   buyer_email?: string
   message?: string
-  status: string
+  status: LeadStatus
+  plot_title?: string
+  plot_cadastral_number?: string
+  plot_status?: Plot['status']
+  plot_price?: number
   created_at: string
 }
 
@@ -183,6 +204,7 @@ export const api = {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
       return request<PlotListResponse>(`/plots${qs}`)
     },
+    stats: () => request<PlotStatsResponse>('/plots/stats'),
     geo: (params?: { bbox?: string; settlement_id?: string; status?: string; permitted_use?: string; cad_unit?: string }) => {
       const qs = params ? '?' + new URLSearchParams(params as Record<string, string>).toString() : ''
       return request<PlotGeoJSON>(`/plots/geo${qs}`)
@@ -244,6 +266,8 @@ export const api = {
     create: (data: { plot_id: string; buyer_name?: string; buyer_phone?: string; buyer_email?: string; message?: string }) =>
       request<{ status: string; id: string }>('/leads', { method: 'POST', body: JSON.stringify(data) }),
     list: () => request<LeadResponse[]>('/leads'),
+    update: (id: string, data: { status: LeadStatus }) =>
+      request<LeadResponse>(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   },
   imports: {
     upload: async (file: File, settlement_id?: string) => {
