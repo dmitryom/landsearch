@@ -3,9 +3,10 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { BASE_LAYERS, buildVriFillExpr, buildVriBorderExpr } from '@/lib/constants'
+import { BASE_LAYERS } from '@/lib/constants'
 import { log } from '@/lib/logger'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
+import { addPlotTileLayers, updatePlotTileUrl } from '@/lib/plot-map-layers'
 
 function detectWebGL(): string {
   try {
@@ -83,40 +84,8 @@ export default function MapView({
   }, [mapLoaded, resultBounds])
 
   const initMapLayers = useCallback((map: maplibregl.Map) => {
-    const existingSource = map.getSource('plots-tiles') as (maplibregl.VectorTileSource & { setTiles?: (tiles: string[]) => void }) | undefined
-    if (existingSource) {
-      if (typeof existingSource.setTiles === 'function') {
-        existingSource.setTiles([tileUrlRef.current])
-      }
-      return
-    }
     log('map', 'Добавление MVT tile слоёв')
-    map.addSource('plots-tiles', {
-      type: 'vector',
-      tiles: [tileUrlRef.current],
-      minzoom: 8,
-      maxzoom: 18,
-    })
-    map.addLayer({
-      id: 'plots-fill', type: 'fill', source: 'plots-tiles',
-      'source-layer': 'plots',
-      paint: { 'fill-color': buildVriFillExpr() as any, 'fill-opacity': 0.18, 'fill-outline-color': buildVriBorderExpr() as any },
-    })
-    map.addLayer({
-      id: 'plots-border', type: 'line', source: 'plots-tiles',
-      'source-layer': 'plots',
-      paint: { 'line-color': buildVriBorderExpr() as any, 'line-width': 2 },
-    })
-    map.addLayer({
-      id: 'plots-points', type: 'circle', source: 'plots-tiles',
-      'source-layer': 'plots',
-      paint: {
-        'circle-color': buildVriFillExpr() as any,
-        'circle-radius': 5,
-        'circle-stroke-color': buildVriBorderExpr() as any,
-        'circle-stroke-width': 1.5,
-      },
-    })
+    addPlotTileLayers(map, tileUrlRef.current)
     map.on('click', 'plots-fill', (e) => {
       if (e.features?.[0]) onPlotClickRef.current?.(e.features[0].properties as Record<string, any>)
     })
@@ -132,12 +101,7 @@ export default function MapView({
   useEffect(() => {
     const map = internalMapRef.current
     if (!map || !mapReadyRef.current) return
-    const source = map.getSource('plots-tiles') as (maplibregl.VectorTileSource & { setTiles?: (tiles: string[]) => void }) | undefined
-    if (source && typeof source.setTiles === 'function') {
-      source.setTiles([tileUrl])
-      map.triggerRepaint()
-      return
-    }
+    if (updatePlotTileUrl(map, tileUrl)) return
     if (map.isStyleLoaded()) initMapLayers(map)
   }, [initMapLayers, tileUrl])
 

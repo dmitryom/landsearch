@@ -5,12 +5,8 @@ import { Layers } from 'lucide-react'
 import { BASE_LAYERS } from '@/lib/constants'
 import maplibregl from 'maplibre-gl'
 import { log } from '@/lib/logger'
-import { buildVriFillExpr, buildVriBorderExpr } from '@/lib/constants'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
-
-function mapSourceExists(map: maplibregl.Map, sourceId: string) {
-  try { return !!map.getSource(sourceId) } catch { return false }
-}
+import { addPlotTileLayers, updatePlotTileUrl } from '@/lib/plot-map-layers'
 
 export default function LayerSwitcher({
   map,
@@ -29,16 +25,7 @@ export default function LayerSwitcher({
   useEffect(() => {
     tileUrlRef.current = buildPlotTileUrl(filters)
     if (!map) return
-    let source: (maplibregl.VectorTileSource & { setTiles?: (tiles: string[]) => void }) | undefined
-    try {
-      source = map.getSource('plots-tiles') as typeof source
-    } catch {
-      return
-    }
-    if (source && typeof source.setTiles === 'function') {
-      source.setTiles([tileUrlRef.current])
-      map.triggerRepaint()
-    }
+    updatePlotTileUrl(map, tileUrlRef.current)
   }, [filters, map])
 
   const switchLayer = (id: string) => {
@@ -53,34 +40,7 @@ export default function LayerSwitcher({
     const reinit = () => {
       if (done) return
       done = true
-      if (!mapSourceExists(map, 'plots-tiles')) {
-        map.addSource('plots-tiles', {
-          type: 'vector',
-          tiles: [tileUrlRef.current],
-          minzoom: 8,
-          maxzoom: 18,
-        })
-        map.addLayer({
-          id: 'plots-fill', type: 'fill', source: 'plots-tiles',
-          'source-layer': 'plots',
-          paint: { 'fill-color': buildVriFillExpr() as any, 'fill-opacity': 0.18, 'fill-outline-color': buildVriBorderExpr() as any },
-        })
-        map.addLayer({
-          id: 'plots-border', type: 'line', source: 'plots-tiles',
-          'source-layer': 'plots',
-          paint: { 'line-color': buildVriBorderExpr() as any, 'line-width': 2 },
-        })
-        map.addLayer({
-          id: 'plots-points', type: 'circle', source: 'plots-tiles',
-          'source-layer': 'plots',
-          paint: {
-            'circle-color': buildVriFillExpr() as any,
-            'circle-radius': 5,
-            'circle-stroke-color': buildVriBorderExpr() as any,
-            'circle-stroke-width': 1.5,
-          },
-        })
-      }
+      addPlotTileLayers(map, tileUrlRef.current)
       log('map', 'Layer switched', id)
     }
     map.once('style.load', reinit)
