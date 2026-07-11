@@ -64,6 +64,20 @@ test('base map layers do not rely on missing local tile proxy routes', async () 
   assert.match(baseLayersSource, /https:\/\/server\.arcgisonline\.com/)
 })
 
+test('base map layers expose only Web Mercator-compatible imagery under cadastral boundaries', async () => {
+  const source = await readFile(constantsModule, 'utf8')
+  const baseLayersIndex = source.indexOf('export const BASE_LAYERS')
+  const baseLayersSource = source.slice(baseLayersIndex)
+
+  assert.notEqual(baseLayersIndex, -1)
+  assert.match(baseLayersSource, /id: 'satellite'/)
+  assert.match(baseLayersSource, /https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery/)
+  assert.doesNotMatch(baseLayersSource, /core-sat\.maps\.yandex\.net/)
+  assert.doesNotMatch(baseLayersSource, /core-renderer-tiles\.maps\.yandex\.net/)
+  assert.doesNotMatch(baseLayersSource, /id: 'yandex_sat'/)
+  assert.doesNotMatch(baseLayersSource, /id: 'yandex_map'/)
+})
+
 test('home land search filters are applied to map vector tile requests', async () => {
   const home = await readFile(homePage, 'utf8')
   const mapView = await readFile(mapViewComponent, 'utf8')

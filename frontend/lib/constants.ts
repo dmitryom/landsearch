@@ -334,38 +334,4 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       layers: [{ id: 'cyclosm', type: 'raster', source: 'cyclosm' }],
     },
   },
-  {
-    id: 'yandex_sat',
-    name: 'Яндекс Спутник',
-    icon: '🛰️',
-    style: {
-      version: 8,
-      sources: {
-        yandex: {
-          type: 'raster',
-          tiles: ['https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}&scale=1&lang=ru_RU'],
-          tileSize: 256,
-          attribution: '© Яндекс',
-        },
-      },
-      layers: [{ id: 'yandex', type: 'raster', source: 'yandex' }],
-    },
-  },
-  {
-    id: 'yandex_map',
-    name: 'Яндекс Карта',
-    icon: '🗺️',
-    style: {
-      version: 8,
-      sources: {
-        yandex: {
-          type: 'raster',
-          tiles: ['https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&scale=1&lang=ru_RU'],
-          tileSize: 256,
-          attribution: '© Яндекс',
-        },
-      },
-      layers: [{ id: 'yandex', type: 'raster', source: 'yandex' }],
-    },
-  },
 ]
