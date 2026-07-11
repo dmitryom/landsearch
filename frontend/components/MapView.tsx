@@ -36,7 +36,7 @@ function getFitBoundsMaxZoom(bounds: maplibregl.LngLatBoundsLike): number {
   const latitudeSpan = Math.abs(Number(northEast[1]) - Number(southWest[1]))
   if (!Number.isFinite(longitudeSpan) || !Number.isFinite(latitudeSpan)) return 15
 
-  return longitudeSpan < 0.01 && latitudeSpan < 0.01 ? 18 : 15
+  return longitudeSpan < 0.01 && latitudeSpan < 0.01 ? 17 : 15
 }
 
 export interface MapViewHandle {
