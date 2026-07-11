@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     yandex_oauth_token: str | None = None
     google_credentials_file: str | None = None
 
-    model_config = {"env_file": ".env", "env_prefix": "LANDSEARCH_"}
+    model_config = {"env_file": ".env", "env_prefix": "LANDSEARCH_", "extra": "ignore"}
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

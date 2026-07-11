@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from app.api.deps import _resolve_user
 from app.api.v1 import plots as plots_api
 from app.core import rate_limit
+from app.core.config import Settings
 from app.core.exceptions import BadRequestException, NotFoundException, RateLimitException
 from app.core.security import create_refresh_token
 from app.schemas import PlotCreate
@@ -81,6 +82,24 @@ async def test_rate_limiter_counts_multiple_requests_in_same_second(monkeypatch)
 def test_plot_status_must_be_known_enum_value():
     with pytest.raises(ValidationError):
         PlotCreate(cadastral_number="99:99:9999999:1", status="not-a-real-status")
+
+
+def test_settings_ignore_legacy_landsearch_env_keys(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                "LANDSEARCH_DATABASE_URL=postgresql+asyncpg://user:pass@localhost/db",
+                "LANDSEARCH_SECRET_KEY=test-secret",
+                "LANDSEARCH_AUTO_ENRICH_ON_CREATE=false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    settings = Settings(_env_file=env_file)
+
+    assert settings.database_url == "postgresql+asyncpg://user:pass@localhost/db"
 
 
 @pytest.mark.asyncio
