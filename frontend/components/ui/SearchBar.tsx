@@ -13,15 +13,28 @@ export default function SearchBar({ onSearch }: { onSearch: (request: SearchRequ
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [show, setShow] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const suggestRequestRef = useRef(0)
+  const suppressSuggestionQueryRef = useRef<string | null>(null)
 
   useEffect(() => {
+    const requestId = ++suggestRequestRef.current
+
+    if (suppressSuggestionQueryRef.current === query) {
+      suppressSuggestionQueryRef.current = null
+      setSuggestions([])
+      setShow(false)
+      return
+    }
+
     if (query.length < 2) {
       setSuggestions([])
+      setShow(false)
       return
     }
     const timer = setTimeout(async () => {
       try {
         const res = await api.search.suggest(query)
+        if (requestId !== suggestRequestRef.current) return
         setSuggestions(res.results)
         setShow(true)
       } catch { /* ignore */ }
@@ -64,7 +77,9 @@ export default function SearchBar({ onSearch }: { onSearch: (request: SearchRequ
               key={s.id}
               className="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm"
               onClick={() => {
+                suppressSuggestionQueryRef.current = s.value
                 setQuery(s.value)
+                setSuggestions([])
                 onSearch({ query: s.value, suggestion: s })
                 setShow(false)
               }}
