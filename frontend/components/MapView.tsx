@@ -21,6 +21,24 @@ function detectWebGL(): string {
   }
 }
 
+function getFitBoundsMaxZoom(bounds: maplibregl.LngLatBoundsLike): number {
+  if (!Array.isArray(bounds) || !Array.isArray(bounds[0]) || !Array.isArray(bounds[1])) return 15
+
+  const [southWest, northEast] = bounds
+  if (
+    !Array.isArray(southWest)
+    || !Array.isArray(northEast)
+    || southWest.length < 2
+    || northEast.length < 2
+  ) return 15
+
+  const longitudeSpan = Math.abs(Number(northEast[0]) - Number(southWest[0]))
+  const latitudeSpan = Math.abs(Number(northEast[1]) - Number(southWest[1]))
+  if (!Number.isFinite(longitudeSpan) || !Number.isFinite(latitudeSpan)) return 15
+
+  return longitudeSpan < 0.01 && latitudeSpan < 0.01 ? 18 : 15
+}
+
 export interface MapViewHandle {
   flyTo: (lng: number, lat: number, zoom?: number) => void
 }
@@ -59,7 +77,7 @@ export default function MapView({
       padding: compactViewport
         ? { top: 64, right: 32, bottom: 112, left: 32 }
         : { top: 72, right: 72, bottom: 256, left: 320 },
-      maxZoom: 15,
+      maxZoom: getFitBoundsMaxZoom(resultBounds),
       duration: 700,
     })
   }, [mapLoaded, resultBounds])

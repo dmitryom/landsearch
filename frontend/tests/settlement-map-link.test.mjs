@@ -118,6 +118,8 @@ test('search selections use LandScanner-style geometry bounds for the map viewpo
   assert.match(searchBar, /requestId !== suggestRequestRef\.current/)
   assert.match(searchBar, /setSuggestions\(\[\]\)[\s\S]*onSearch\(\{ query: s\.value, suggestion: s \}\)/)
   assert.match(mapView, /const compactViewport = map\.getContainer\(\)\.clientWidth < 768/)
+  assert.match(mapView, /getFitBoundsMaxZoom\(resultBounds\)/)
+  assert.match(mapView, /longitudeSpan < 0\.01 && latitudeSpan < 0\.01 \? 18 : 15/)
   assert.match(layerSwitcher, /const tileUrlRef = useRef\(buildPlotTileUrl\(filters\)\)/)
   assert.match(layerSwitcher, /tiles: \[tileUrlRef\.current\]/)
   assert.match(plotCards, /Показано \{plots\.length\} из \{total\}/)
