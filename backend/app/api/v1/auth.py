@@ -57,7 +57,7 @@ async def register(body: UserCreate, session: AsyncSession = Depends(get_session
 async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
-    if not user or not verify_password(body.password, user.password_hash):
+    if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         raise UnauthorizedException("Invalid email or password")
 
     return _build_token_response(user)

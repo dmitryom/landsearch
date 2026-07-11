@@ -6,12 +6,13 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.api.deps import _resolve_user
+from app.api.v1 import auth as auth_api
 from app.api.v1 import plots as plots_api
 from app.core import rate_limit
 from app.core.config import Settings
-from app.core.exceptions import BadRequestException, NotFoundException, RateLimitException
+from app.core.exceptions import BadRequestException, NotFoundException, RateLimitException, UnauthorizedException
 from app.core.security import create_refresh_token
-from app.schemas import PlotCreate
+from app.schemas import LoginRequest, PlotCreate
 
 
 class _ScalarResult:
@@ -100,6 +101,33 @@ def test_settings_ignore_legacy_landsearch_env_keys(tmp_path):
     settings = Settings(_env_file=env_file)
 
     assert settings.database_url == "postgresql+asyncpg://user:pass@localhost/db"
+
+
+class _SingleUserSession:
+    def __init__(self, user):
+        self.user = user
+
+    async def execute(self, _stmt):
+        return _ScalarResult(self.user)
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_inactive_user_with_valid_password(monkeypatch):
+    inactive_user = SimpleNamespace(
+        id=uuid4(),
+        email="inactive@example.com",
+        password_hash="stored-hash",
+        full_name="Inactive User",
+        role=SimpleNamespace(value="admin"),
+        is_active=False,
+    )
+    monkeypatch.setattr(auth_api, "verify_password", lambda _password, _hash: True)
+
+    with pytest.raises(UnauthorizedException):
+        await auth_api.login(
+            body=LoginRequest(email=inactive_user.email, password="correct-password"),
+            session=_SingleUserSession(inactive_user),
+        )
 
 
 @pytest.mark.asyncio
