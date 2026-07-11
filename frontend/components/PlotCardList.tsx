@@ -113,6 +113,8 @@ export default function PlotCardList({ plots, total, onSelect, onFlyTo }: PlotCa
     >
       <button
         onClick={() => setOpen(!open)}
+        aria-label={open ? 'Свернуть список участков' : 'Развернуть список участков'}
+        title={open ? 'Свернуть список участков' : 'Развернуть список участков'}
         className="flex w-full cursor-pointer items-center justify-center gap-2 border-b py-3 hover:bg-gray-50"
       >
         <div className="h-1 w-10 rounded-full bg-gray-300" />

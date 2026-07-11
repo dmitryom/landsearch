@@ -199,6 +199,7 @@ test('plot cards support saved favorites, comparison drawer and CSV export', asy
   assert.match(plotCards, /safeSet/)
   assert.match(plotCards, /Star/)
   assert.match(plotCards, /Scale/)
+  assert.match(plotCards, /Развернуть список участков/)
   assert.match(plotCards, /comparePlots/)
   assert.match(plotCards, /downloadCompareCsv/)
 })
