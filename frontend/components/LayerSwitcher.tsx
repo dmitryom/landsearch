@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Layers } from 'lucide-react'
 import { BASE_LAYERS } from '@/lib/constants'
 import maplibregl from 'maplibre-gl'
@@ -24,12 +24,27 @@ export default function LayerSwitcher({
   filters?: Record<string, string>
 }) {
   const [open, setOpen] = useState(false)
+  const tileUrlRef = useRef(buildPlotTileUrl(filters))
+
+  useEffect(() => {
+    tileUrlRef.current = buildPlotTileUrl(filters)
+    if (!map) return
+    let source: (maplibregl.VectorTileSource & { setTiles?: (tiles: string[]) => void }) | undefined
+    try {
+      source = map.getSource('plots-tiles') as typeof source
+    } catch {
+      return
+    }
+    if (source && typeof source.setTiles === 'function') {
+      source.setTiles([tileUrlRef.current])
+      map.triggerRepaint()
+    }
+  }, [filters, map])
 
   const switchLayer = (id: string) => {
     if (!map) return
     const layer = BASE_LAYERS.find(l => l.id === id)
     if (!layer) return
-    const tileUrl = buildPlotTileUrl(filters)
     log('map', 'Switching layer', id)
     onChange(id)
     map.setStyle(layer.style)
@@ -41,7 +56,7 @@ export default function LayerSwitcher({
       if (!mapSourceExists(map, 'plots-tiles')) {
         map.addSource('plots-tiles', {
           type: 'vector',
-          tiles: [tileUrl],
+          tiles: [tileUrlRef.current],
           minzoom: 8,
           maxzoom: 18,
         })

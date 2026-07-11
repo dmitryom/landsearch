@@ -3,7 +3,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { api, SearchSuggestion } from '@/lib/api'
 
-export default function SearchBar({ onSearch }: { onSearch: (q: string) => void }) {
+export interface SearchRequest {
+  query: string
+  suggestion?: SearchSuggestion
+}
+
+export default function SearchBar({ onSearch }: { onSearch: (request: SearchRequest) => void }) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [show, setShow] = useState(false)
@@ -36,7 +41,7 @@ export default function SearchBar({ onSearch }: { onSearch: (q: string) => void 
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onSearch(query)
+    onSearch({ query })
     setShow(false)
   }
 
@@ -60,7 +65,7 @@ export default function SearchBar({ onSearch }: { onSearch: (q: string) => void 
               className="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm"
               onClick={() => {
                 setQuery(s.value)
-                onSearch(s.value)
+                onSearch({ query: s.value, suggestion: s })
                 setShow(false)
               }}
             >

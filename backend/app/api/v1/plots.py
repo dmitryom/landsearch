@@ -299,6 +299,7 @@ async def plot_tiles(
     x: int,
     y: int,
     query: str | None = None,
+    settlement_id: str | None = None,
     status: str | None = None,
     permitted_use: str | None = None,
     cad_unit: str | None = None,
@@ -311,9 +312,10 @@ async def plot_tiles(
     cache = await _get_redis()
     tenant_cache_part = str(tenant_id) if tenant_id else "none"
     normalized_query = _normalized_search_query(query)
+    settlement_uuid = _parse_uuid(settlement_id, "settlement_id") if settlement_id else None
     cache_key = (
         f"landsearch:tiles:{tenant_cache_part}:{z}/{x}/{y}:"
-        f"{normalized_query or ''}:{status or ''}:{permitted_use or ''}:{cad_unit or ''}"
+        f"{normalized_query or ''}:{settlement_uuid or ''}:{status or ''}:{permitted_use or ''}:{cad_unit or ''}"
     )
 
     if cache:
@@ -335,6 +337,9 @@ async def plot_tiles(
         where_clauses.append("p.tenant_id = :tenant_id")
         params["tenant_id"] = tenant_id
 
+    if settlement_uuid:
+        where_clauses.append("p.settlement_id = :settlement_id")
+        params["settlement_id"] = settlement_uuid
     if status:
         where_clauses.append("p.status = :status")
         params["status"] = status

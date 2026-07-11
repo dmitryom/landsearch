@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { BASE_LAYERS, buildVriFillExpr, buildVriBorderExpr } from '@/lib/constants'
@@ -30,11 +30,13 @@ export default function MapView({
   onPlotClick,
   mapRef,
   filters = {},
+  resultBounds = null,
 }: {
   onMapReady?: (map: maplibregl.Map) => void
   onPlotClick?: (props: Record<string, any>) => void
   mapRef?: React.MutableRefObject<maplibregl.Map | null>
   filters?: Record<string, string>
+  resultBounds?: maplibregl.LngLatBoundsLike | null
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const internalMapRef = useRef<maplibregl.Map | null>(null)
@@ -43,10 +45,24 @@ export default function MapView({
   const onPlotClickRef = useRef(onPlotClick)
   const tileUrl = useMemo(() => buildPlotTileUrl(filters), [filters])
   const tileUrlRef = useRef(tileUrl)
+  const [mapLoaded, setMapLoaded] = useState(false)
 
   useEffect(() => { onMapReadyRef.current = onMapReady }, [onMapReady])
   useEffect(() => { onPlotClickRef.current = onPlotClick }, [onPlotClick])
   useEffect(() => { tileUrlRef.current = tileUrl }, [tileUrl])
+
+  useEffect(() => {
+    const map = internalMapRef.current
+    if (!map || !mapLoaded || !resultBounds) return
+    const compactViewport = map.getContainer().clientWidth < 768
+    map.fitBounds(resultBounds, {
+      padding: compactViewport
+        ? { top: 64, right: 32, bottom: 112, left: 32 }
+        : { top: 72, right: 72, bottom: 256, left: 320 },
+      maxZoom: 15,
+      duration: 700,
+    })
+  }, [mapLoaded, resultBounds])
 
   const initMapLayers = useCallback((map: maplibregl.Map) => {
     const existingSource = map.getSource('plots-tiles') as (maplibregl.VectorTileSource & { setTiles?: (tiles: string[]) => void }) | undefined
@@ -134,6 +150,7 @@ export default function MapView({
         if (!mounted) return
         log('map', `Map LOAD event fired after ${Math.round(performance.now())}ms`)
         mapReadyRef.current = true
+        setMapLoaded(true)
         initMapLayers(map)
         onMapReadyRef.current?.(map)
       })
@@ -149,6 +166,7 @@ export default function MapView({
         if (mounted && !mapReadyRef.current) {
           log('error', 'TIMEOUT: map.on(load) не сработал за 15 сек')
           mapReadyRef.current = true
+          setMapLoaded(true)
           onMapReadyRef.current?.(map)
         }
       }, 15000)

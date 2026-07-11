@@ -5,7 +5,7 @@ import maplibregl from 'maplibre-gl'
 import { api } from '@/lib/api'
 import { STATUS_LABELS, VRI_COLORS, VRI_DEFAULT_COLOR, BASE_LAYERS, vriColor } from '@/lib/constants'
 import { Filter, Home } from 'lucide-react'
-import SearchBar from '@/components/ui/SearchBar'
+import SearchBar, { type SearchRequest } from '@/components/ui/SearchBar'
 import FilterPanel from '@/components/ui/FilterPanel'
 import PlotPopup from '@/components/ui/PlotPopup'
 import LogPanel from '@/components/ui/LogPanel'
@@ -14,11 +14,16 @@ import LayerSwitcher from '@/components/LayerSwitcher'
 import VriLegend from '@/components/VriLegend'
 import PlotCardList from '@/components/PlotCardList'
 import { log } from '@/lib/logger'
+import { getGeometryBounds, getPlotBounds, type PlotBounds } from '@/lib/plot-bounds'
 
 export default function HomePage() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const loadIdRef = useRef(0)
+  const selectionRequestIdRef = useRef(0)
   const [plotsList, setPlotsList] = useState<any[]>([])
+  const [plotsTotal, setPlotsTotal] = useState(0)
+  const [listBounds, setListBounds] = useState<PlotBounds | null>(null)
+  const [selectedBounds, setSelectedBounds] = useState<PlotBounds | null>(null)
   const [selectedPlot, setSelectedPlot] = useState<any>(null)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [showFilters, setShowFilters] = useState(true)
@@ -31,6 +36,9 @@ export default function HomePage() {
     const id = ++loadIdRef.current
     setLoading(true)
     setError(null)
+    setPlotsList([])
+    setPlotsTotal(0)
+    setListBounds(null)
     log('data', 'Запрос данных', JSON.stringify(f))
     const t0 = performance.now()
     try {
@@ -38,6 +46,8 @@ export default function HomePage() {
       if (id !== loadIdRef.current) return
       log('data', `Данные загружены за ${Math.round(performance.now() - t0)}ms`, `plots: ${list.total} total`)
       setPlotsList(list.items)
+      setPlotsTotal(list.total)
+      setListBounds(getPlotBounds(list.items))
     } catch (e: any) {
       if (id === loadIdRef.current) {
         log('error', 'Ошибка загрузки данных', `${e.message}\n${e.stack}`)
@@ -50,13 +60,59 @@ export default function HomePage() {
 
   useEffect(() => { loadData(filters) }, [filters, loadData])
 
-  const handleSearch = async (q: string) => {
-    const query = q.trim()
-    if (!query) { setFilters({}); return }
-    const results = await api.search.suggest(query)
-    if (results.results.length > 0) {
-      setFilters((prev) => ({ ...prev, query }))
+  const handleFiltersChange = (nextFilters: Record<string, string>) => {
+    selectionRequestIdRef.current += 1
+    setSelectedBounds(null)
+    setFilters(nextFilters)
+  }
+
+  const updateSearchFilters = (query: string, settlementId?: string) => {
+    setFilters((previous) => {
+      const next: Record<string, string> = { ...previous, query }
+      if (settlementId) next.settlement_id = settlementId
+      else delete next.settlement_id
+      return next
+    })
+  }
+
+  const handleSearch = async ({ query: rawQuery, suggestion }: SearchRequest) => {
+    const query = rawQuery.trim()
+    const selectionRequestId = ++selectionRequestIdRef.current
+    if (!query) {
+      setSelectedBounds(null)
+      setFilters({})
+      return
     }
+
+    setSelectedBounds(null)
+
+    if (suggestion?.type === 'settlement') {
+      setFilters((previous) => ({ ...previous, query, settlement_id: suggestion.id }))
+      try {
+        const settlement = await api.settlements.get(suggestion.id)
+        if (selectionRequestId === selectionRequestIdRef.current) {
+          setSelectedBounds(getGeometryBounds(settlement.geometry))
+        }
+      } catch {
+        // The list bounds still provide a safe viewport when settlement geometry is unavailable.
+      }
+      return
+    }
+
+    if (suggestion?.type === 'plot') {
+      updateSearchFilters(query)
+      try {
+        const plot = await api.plots.get(suggestion.id)
+        if (selectionRequestId === selectionRequestIdRef.current) {
+          setSelectedBounds(getGeometryBounds(plot.geometry))
+        }
+      } catch {
+        // The list bounds still provide a safe viewport when plot geometry is unavailable.
+      }
+      return
+    }
+
+    updateSearchFilters(query)
   }
 
   const flyToPlot = (plot: any) => {
@@ -69,7 +125,7 @@ export default function HomePage() {
     setSelectedPlot(props)
   }
 
-  const freeCount = plotsList.filter(p => p.status === 'free').length
+  const resultBounds = selectedBounds ?? listBounds
 
   return (
     <div className="flex flex-col h-screen">
@@ -85,8 +141,8 @@ export default function HomePage() {
         </div>
         <div className="flex items-center gap-2 sm:gap-4 text-sm">
           <div className="hidden md:flex items-center gap-1 text-gray-500">
-            <span className="text-green-600 font-semibold">{freeCount}</span>
-            <span>свободно</span>
+            <span className="text-green-600 font-semibold">{plotsTotal}</span>
+            <span>найдено</span>
           </div>
           <button onClick={() => setShowFilters(!showFilters)}
             className={`p-2 rounded-lg border ${showFilters ? 'bg-blue-50 border-blue-200 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
@@ -105,7 +161,7 @@ export default function HomePage() {
       </div>
 
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {showFilters && <div className="hidden md:block"><FilterPanel filters={filters} onChange={setFilters} /></div>}
+        {showFilters && <div className="hidden md:block"><FilterPanel filters={filters} onChange={handleFiltersChange} /></div>}
 
         {showFilters && (
           <div className="md:hidden fixed inset-0 z-50 flex">
@@ -116,7 +172,7 @@ export default function HomePage() {
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
-              <FilterPanel filters={filters} onChange={setFilters} />
+              <FilterPanel filters={filters} onChange={handleFiltersChange} />
             </div>
           </div>
         )}
@@ -126,6 +182,7 @@ export default function HomePage() {
             <MapView
               mapRef={mapRef}
               filters={filters}
+              resultBounds={resultBounds}
               onMapReady={() => setMapInit(true)}
               onPlotClick={handlePlotClick}
             />
@@ -160,11 +217,11 @@ export default function HomePage() {
 
           {plotsList.length > 0 && (
             <div className="hidden sm:block absolute bottom-4 right-4 bg-white/95 backdrop-blur-sm rounded-xl shadow-lg p-3 z-20 border text-xs sm:text-sm text-gray-600">
-              {plotsList.length} участков · {(plotsList.reduce((s: number, p: any) => s + (p.area_m2 || 0), 0) / 10000).toFixed(1)} га · {new Intl.NumberFormat('ru-RU').format(plotsList.reduce((s: number, p: any) => s + (p.price || 0), 0))} ₽
+              Найдено {plotsTotal} · показано {plotsList.length}
             </div>
           )}
 
-          <PlotCardList plots={plotsList} onSelect={setSelectedPlot} onFlyTo={flyToPlot} />
+          <PlotCardList plots={plotsList} total={plotsTotal} onSelect={setSelectedPlot} onFlyTo={flyToPlot} />
         </main>
       </div>
 

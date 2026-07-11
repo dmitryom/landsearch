@@ -5,11 +5,12 @@ import { STATUS_LABELS, vriColor } from '@/lib/constants'
 
 interface PlotCardListProps {
   plots: any[]
+  total: number
   onSelect: (plot: any) => void
   onFlyTo: (plot: any) => void
 }
 
-export default function PlotCardList({ plots, onSelect, onFlyTo }: PlotCardListProps) {
+export default function PlotCardList({ plots, total, onSelect, onFlyTo }: PlotCardListProps) {
   const [open, setOpen] = useState(false)
   const sliderRef = useRef<HTMLDivElement>(null)
 
@@ -31,12 +32,14 @@ export default function PlotCardList({ plots, onSelect, onFlyTo }: PlotCardListP
       </button>
       <div className="px-4 pb-2 flex items-center justify-between">
         <h3 className="font-semibold text-xs sm:text-sm">
-          Участки <span className="text-gray-400 font-normal">({plots.length})</span>
+          Участки <span className="text-gray-400 font-normal">({total})</span>
         </h3>
         <div className="flex gap-2 text-[10px] sm:text-xs text-gray-500">
-          <span>{(totalArea / 10000).toFixed(1)} га</span>
-          <span>·</span>
-          <span>{new Intl.NumberFormat('ru-RU').format(totalPrice)} ₽</span>
+          <span>Показано {plots.length} из {total}</span>
+          <span className="hidden sm:inline">·</span>
+          <span className="hidden sm:inline">{(totalArea / 10000).toFixed(1)} га</span>
+          <span className="hidden sm:inline">·</span>
+          <span className="hidden sm:inline">{new Intl.NumberFormat('ru-RU').format(totalPrice)} ₽</span>
         </div>
       </div>
       <div ref={sliderRef} className="overflow-x-auto overflow-y-hidden pb-4 px-4">

@@ -161,5 +161,69 @@ async def test_create_plot_rejects_settlement_from_another_tenant():
         await plots_api.create_plot(
             body=body,
             current_user=SimpleNamespace(tenant_id=uuid4()),
-            session=_NoSettlementSession(),
-        )
+        session=_NoSettlementSession(),
+    )
+
+
+class _TileResult:
+    def scalar(self):
+        return b"tile-data"
+
+
+class _TileSession:
+    def __init__(self):
+        self.statement = ""
+        self.params = {}
+
+    async def execute(self, statement, params):
+        self.statement = str(statement)
+        self.params = params
+        return _TileResult()
+
+
+class _TileCache:
+    def __init__(self):
+        self.get_keys = []
+
+    async def get(self, key):
+        self.get_keys.append(key)
+        return None
+
+    async def setex(self, _key, _ttl, _value):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_plot_tiles_filters_vector_layer_by_settlement_id(monkeypatch):
+    cache = _TileCache()
+
+    async def tile_cache():
+        return cache
+
+    session = _TileSession()
+    tenant_id = uuid4()
+    settlement_id = uuid4()
+    monkeypatch.setattr(plots_api, "_get_redis", tile_cache)
+
+    await plots_api.plot_tiles(
+        z=12,
+        x=2048,
+        y=1364,
+        settlement_id=str(settlement_id),
+        session=session,
+        tenant_id=tenant_id,
+    )
+
+    assert "p.settlement_id = :settlement_id" in session.statement
+    assert session.params["settlement_id"] == settlement_id
+
+    await plots_api.plot_tiles(
+        z=12,
+        x=2048,
+        y=1364,
+        settlement_id=str(uuid4()),
+        session=_TileSession(),
+        tenant_id=tenant_id,
+    )
+
+    assert cache.get_keys[0] != cache.get_keys[1]
