@@ -22,6 +22,12 @@ function detectWebGL(): string {
   }
 }
 
+function isAbortError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { name, message } = error as { name?: string; message?: string }
+  return name === 'AbortError' || message === 'AbortError'
+}
+
 function getFitBoundsMaxZoom(bounds: maplibregl.LngLatBoundsLike): number {
   if (!Array.isArray(bounds) || !Array.isArray(bounds[0]) || !Array.isArray(bounds[1])) return 15
 
@@ -121,6 +127,7 @@ export default function MapView({
       log('map', 'Map object created')
 
       map.on('error', (e) => {
+        if (isAbortError(e.error)) return
         const detail = e as any
         log('error', 'MapLibre error', `${e.error?.message || 'unknown'}\nsource=${detail.sourceId || 'none'}\ntile=${detail.tile?.url || 'none'}`)
       })

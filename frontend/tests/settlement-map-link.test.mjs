@@ -116,6 +116,15 @@ test('home plot boundaries use the LandScanner parcel layer style', async () => 
   assert.doesNotMatch(layerSwitcher, /'fill-opacity': 0\.18/)
 })
 
+test('home map does not show cancelled vector tile loads as user-facing errors', async () => {
+  const mapView = await readFile(mapViewComponent, 'utf8')
+
+  assert.match(mapView, /function isAbortError\(error: unknown\): boolean/)
+  assert.match(mapView, /message === 'AbortError'/)
+  assert.match(mapView, /if \(isAbortError\(e\.error\)\) return/)
+  assert.match(mapView, /log\('error', 'MapLibre error'/)
+})
+
 test('home search passes plot result bounds to MapView and displays API total', async () => {
   const home = await readFile(homePage, 'utf8')
   const mapView = await readFile(mapViewComponent, 'utf8')
