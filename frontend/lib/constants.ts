@@ -198,7 +198,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         osm: {
           type: 'raster',
-          tiles: ['/tiles/osm/{z}/{x}/{y}.png'],
+          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
           tileSize: 256,
           attribution: '© OpenStreetMap',
         },
@@ -215,7 +215,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         esri: {
           type: 'raster',
-          tiles: ['/tiles/esri/imagery/{z}/{y}/{x}'],
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
           tileSize: 256,
           attribution: '© Esri',
         },
@@ -232,13 +232,13 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         esri: {
           type: 'raster',
-          tiles: ['/tiles/esri/imagery/{z}/{y}/{x}'],
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
           tileSize: 256,
           attribution: '© Esri',
         },
         labels: {
           type: 'raster',
-          tiles: ['/tiles/esri/labels/{z}/{y}/{x}'],
+          tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
           tileSize: 256,
           attribution: '© Esri',
         },
@@ -258,7 +258,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         topo: {
           type: 'raster',
-          tiles: ['/tiles/topo/{z}/{x}/{y}.png'],
+          tiles: ['https://a.tile.opentopomap.org/{z}/{x}/{y}.png'],
           tileSize: 256,
           attribution: '© OpenTopoMap',
         },
@@ -275,7 +275,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         carto: {
           type: 'raster',
-          tiles: ['/tiles/carto/light/{z}/{x}/{y}@2x.png'],
+          tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'],
           tileSize: 256,
           attribution: '© CartoDB',
         },
@@ -292,7 +292,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         carto: {
           type: 'raster',
-          tiles: ['/tiles/carto/dark/{z}/{x}/{y}@2x.png'],
+          tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
           tileSize: 256,
           attribution: '© CartoDB',
         },
@@ -309,7 +309,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         carto: {
           type: 'raster',
-          tiles: ['/tiles/carto/voyager/{z}/{x}/{y}@2x.png'],
+          tiles: ['https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png'],
           tileSize: 256,
           attribution: '© CartoDB',
         },
@@ -318,20 +318,20 @@ export const BASE_LAYERS: BaseLayerDef[] = [
     },
   },
   {
-    id: 'wikimedia',
-    name: 'Вики',
-    icon: '📖',
+    id: 'cyclosm',
+    name: 'Вело',
+    icon: '🚲',
     style: {
       version: 8,
       sources: {
-        wiki: {
+        cyclosm: {
           type: 'raster',
-          tiles: ['/tiles/wiki/{z}/{x}/{y}.png'],
+          tiles: ['https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png'],
           tileSize: 256,
-          attribution: '© Wikimedia',
+          attribution: '© CyclOSM, © OpenStreetMap',
         },
       },
-      layers: [{ id: 'wiki', type: 'raster', source: 'wiki' }],
+      layers: [{ id: 'cyclosm', type: 'raster', source: 'cyclosm' }],
     },
   },
   {
@@ -343,7 +343,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         yandex: {
           type: 'raster',
-          tiles: ['/tiles/yandex/sat/tiles?l=sat&x={x}&y={y}&z={z}&scale=1'],
+          tiles: ['https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}&scale=1&lang=ru_RU'],
           tileSize: 256,
           attribution: '© Яндекс',
         },
@@ -360,7 +360,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         yandex: {
           type: 'raster',
-          tiles: ['/tiles/yandex/map/tiles?l=map&x={x}&y={y}&z={z}&scale=1'],
+          tiles: ['https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&scale=1&lang=ru_RU'],
           tileSize: 256,
           attribution: '© Яндекс',
         },

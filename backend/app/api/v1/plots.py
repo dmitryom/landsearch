@@ -13,18 +13,70 @@ from ...core.config import settings
 from ...core.database import get_session
 from ...core.exceptions import BadRequestException, NotFoundException
 from ...metrics import CACHE_HITS, CACHE_MISSES, PLOTS_GEO_TOTAL
-from ...models import Plot, PlotStatus, User
+from ...models import Plot, PlotStatus, Settlement, User
 from ...schemas import PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotUpdate
 from ...services.cadastre import batch_enrich, enrich_from_cadastre, lookup_cadastre
 from ...services.similar import find_similar_plots
 from ...utils.plot_helpers import plot_to_response
-from ..deps import get_current_user, get_current_user_optional
+from ..deps import get_current_user, get_tenant_scope_optional
 
 import redis.asyncio as aioredis
 
 ALLOWED_SORT_FIELDS = {"created_at", "price", "area_m2", "cadastral_number"}
+PLOT_SEARCH_MIN_LENGTH = 2
 
 router = APIRouter(prefix="/plots", tags=["plots"])
+
+
+def _parse_uuid(value: str, field_name: str) -> UUID:
+    try:
+        return UUID(value)
+    except ValueError:
+        raise BadRequestException(f"Invalid {field_name}")
+
+
+def _normalized_search_query(query: str | None) -> str | None:
+    if query is None:
+        return None
+    term = query.strip()
+    return term if len(term) >= PLOT_SEARCH_MIN_LENGTH else None
+
+
+def _apply_plot_search(stmt, query: str | None):
+    term = _normalized_search_query(query)
+    if not term:
+        return stmt
+
+    like = f"%{term}%"
+    return stmt.outerjoin(Settlement, Plot.settlement_id == Settlement.id).where(
+        or_(
+            Plot.cadastral_number.ilike(like),
+            Plot.address.ilike(like),
+            Plot.title.ilike(like),
+            Settlement.name.ilike(like),
+            Settlement.address.ilike(like),
+        )
+    )
+
+
+async def _resolve_owned_settlement_id(
+    session: AsyncSession,
+    settlement_id: str | None,
+    tenant_id,
+) -> UUID | None:
+    if not settlement_id:
+        return None
+
+    settlement_uuid = _parse_uuid(settlement_id, "settlement_id")
+    result = await session.execute(
+        select(Settlement.id).where(
+            Settlement.id == settlement_uuid,
+            Settlement.tenant_id == tenant_id,
+        )
+    )
+    if result.scalar_one_or_none() is None:
+        raise NotFoundException("Settlement not found")
+    return settlement_uuid
 
 
 @router.get("", response_model=PlotListResponse)
@@ -44,26 +96,16 @@ async def list_plots(
     sort_by: str = "created_at",
     sort_order: str = "desc",
     session: AsyncSession = Depends(get_session),
-    current_user: User | None = Depends(get_current_user_optional),
+    tenant_id: UUID | None = Depends(get_tenant_scope_optional),
 ):
-    stmt = select(Plot).where(Plot.is_active)
-    if current_user:
-        stmt = stmt.where(Plot.tenant_id == current_user.tenant_id)
+    if tenant_id is None:
+        return PlotListResponse(items=[], total=0, page=page, page_size=page_size)
+
+    stmt = select(Plot).where(Plot.is_active, Plot.tenant_id == tenant_id)
 
     if settlement_id:
-        try:
-            stmt = stmt.where(Plot.settlement_id == UUID(settlement_id))
-        except ValueError:
-            raise BadRequestException("Invalid settlement_id")
-    if query:
-        like = f"%{query}%"
-        stmt = stmt.where(
-            or_(
-                Plot.cadastral_number.ilike(like),
-                Plot.address.ilike(like),
-                Plot.title.ilike(like),
-            )
-        )
+        stmt = stmt.where(Plot.settlement_id == _parse_uuid(settlement_id, "settlement_id"))
+    stmt = _apply_plot_search(stmt, query)
     if status:
         stmt = stmt.where(Plot.status == status)
     if permitted_use:
@@ -116,14 +158,25 @@ async def _get_redis():
 @router.get("/geo", response_model=PlotGeoJSON)
 async def plots_geojson(
     bbox: str | None = Query(None, description="min_lng,min_lat,max_lng,max_lat"),
+    query: str | None = None,
     settlement_id: str | None = None,
     status: str | None = None,
     permitted_use: str | None = None,
     cad_unit: str | None = None,
     session: AsyncSession = Depends(get_session),
+    tenant_id: UUID | None = Depends(get_tenant_scope_optional),
 ):
     cache = await _get_redis()
-    cache_key = _cache_key("plots:geo", bbox=bbox, settlement_id=settlement_id, status=status, permitted_use=permitted_use, cad_unit=cad_unit)
+    cache_key = _cache_key(
+        "plots:geo",
+        tenant_id=tenant_id,
+        bbox=bbox,
+        query=query,
+        settlement_id=settlement_id,
+        status=status,
+        permitted_use=permitted_use,
+        cad_unit=cad_unit,
+    )
 
     if cache:
         try:
@@ -135,13 +188,19 @@ async def plots_geojson(
             pass
     CACHE_MISSES.labels(cache_type="redis").inc()
 
-    stmt = select(Plot).where(Plot.is_active, Plot.geometry.isnot(None))
+    if tenant_id is None:
+        return PlotGeoJSON(type="FeatureCollection", features=[])
+
+    stmt = select(Plot).where(
+        Plot.is_active,
+        Plot.geometry.isnot(None),
+        Plot.tenant_id == tenant_id,
+    )
 
     if settlement_id:
-        try:
-            stmt = stmt.where(Plot.settlement_id == UUID(settlement_id))
-        except ValueError:
-            raise BadRequestException("Invalid settlement_id")
+        stmt = stmt.where(Plot.settlement_id == _parse_uuid(settlement_id, "settlement_id"))
+
+    stmt = _apply_plot_search(stmt, query)
 
     if bbox:
         try:
@@ -183,6 +242,7 @@ async def plots_geojson(
             "properties": {
                 "id": str(p.id),
                 "cadastral_number": p.cadastral_number,
+                "settlement_id": str(p.settlement_id) if p.settlement_id else None,
                 "price": p.price,
                 "area_m2": p.area_m2,
                 "permitted_use": p.permitted_use,
@@ -238,16 +298,23 @@ async def plot_tiles(
     z: int,
     x: int,
     y: int,
+    query: str | None = None,
     status: str | None = None,
     permitted_use: str | None = None,
     cad_unit: str | None = None,
     session: AsyncSession = Depends(get_session),
+    tenant_id: UUID | None = Depends(get_tenant_scope_optional),
 ):
     """MVT vector tiles for map rendering."""
     from fastapi.responses import Response
 
     cache = await _get_redis()
-    cache_key = f"landsearch:tiles:{z}/{x}/{y}:{status or ''}:{permitted_use or ''}:{cad_unit or ''}"
+    tenant_cache_part = str(tenant_id) if tenant_id else "none"
+    normalized_query = _normalized_search_query(query)
+    cache_key = (
+        f"landsearch:tiles:{tenant_cache_part}:{z}/{x}/{y}:"
+        f"{normalized_query or ''}:{status or ''}:{permitted_use or ''}:{cad_unit or ''}"
+    )
 
     if cache:
         try:
@@ -262,6 +329,11 @@ async def plot_tiles(
     where_clauses = ["p.geometry IS NOT NULL", "p.is_active = true",
                      "ST_Intersects(ST_Transform(p.geometry, 3857), ST_TileEnvelope(:z, :x, :y))"]
     params = {"z": z, "x": x, "y": y}
+    if tenant_id is None:
+        where_clauses.append("false")
+    else:
+        where_clauses.append("p.tenant_id = :tenant_id")
+        params["tenant_id"] = tenant_id
 
     if status:
         where_clauses.append("p.status = :status")
@@ -272,6 +344,12 @@ async def plot_tiles(
     if cad_unit:
         where_clauses.append("p.cad_unit LIKE :cad_unit")
         params["cad_unit"] = f"{cad_unit}%"
+    if normalized_query:
+        where_clauses.append(
+            "(p.cadastral_number ILIKE :query OR p.address ILIKE :query "
+            "OR p.title ILIKE :query OR s.name ILIKE :query OR s.address ILIKE :query)"
+        )
+        params["query"] = f"%{normalized_query}%"
 
     vri_case = """
         CASE
@@ -346,6 +424,7 @@ async def plot_tiles(
             p.cadastral_value AS cad_value,
             p.settlement_id::text AS settlement_id
         FROM plots p
+        LEFT JOIN settlements s ON p.settlement_id = s.id
         WHERE {' AND '.join(where_clauses)}
     ) AS mvt
     """
@@ -367,13 +446,20 @@ async def plot_tiles(
 
 
 @router.get("/{plot_id}", response_model=PlotResponse)
-async def get_plot(plot_id: str, session: AsyncSession = Depends(get_session)):
-    try:
-        result = await session.execute(
-            select(Plot).where(Plot.id == UUID(plot_id), Plot.is_active)
+async def get_plot(
+    plot_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: UUID | None = Depends(get_tenant_scope_optional),
+):
+    if tenant_id is None:
+        raise NotFoundException("Plot not found")
+    result = await session.execute(
+        select(Plot).where(
+            Plot.id == _parse_uuid(plot_id, "plot_id"),
+            Plot.tenant_id == tenant_id,
+            Plot.is_active,
         )
-    except ValueError:
-        raise BadRequestException("Invalid plot_id")
+    )
     plot = result.scalar_one_or_none()
     if not plot:
         raise NotFoundException("Plot not found")
@@ -408,8 +494,18 @@ async def enrich_plot(
 
 
 @router.get("/{plot_id}/similar", response_model=list[PlotResponse])
-async def similar_plots(plot_id: str, session: AsyncSession = Depends(get_session)):
-    results = await find_similar_plots(session, plot_id)
+async def similar_plots(
+    plot_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: UUID | None = Depends(get_tenant_scope_optional),
+):
+    if tenant_id is None:
+        return []
+    results = await find_similar_plots(
+        session,
+        _parse_uuid(plot_id, "plot_id"),
+        tenant_id=tenant_id,
+    )
     return [plot_to_response(p) for p in results]
 
 
@@ -419,6 +515,11 @@ async def create_plot(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    settlement_id = await _resolve_owned_settlement_id(
+        session,
+        body.settlement_id,
+        current_user.tenant_id,
+    )
     plot = Plot(
         tenant_id=current_user.tenant_id,
         cadastral_number=body.cadastral_number,
@@ -436,18 +537,13 @@ async def create_plot(
         status=body.status,
         title=body.title,
         description=body.description,
-        settlement_id=UUID(body.settlement_id) if body.settlement_id else None,
+        settlement_id=settlement_id,
     )
     if body.area_m2 and body.price:
         plot.price_per_hectare = body.price / (body.area_m2 / 10000)
 
     session.add(plot)
     await session.flush()
-
-    try:
-        await enrich_from_cadastre(session, plot)
-    except Exception:
-        pass
 
     await session.commit()
     await session.refresh(plot)
@@ -463,7 +559,7 @@ async def update_plot(
 ):
     result = await session.execute(
         select(Plot).where(
-            Plot.id == UUID(plot_id),
+            Plot.id == _parse_uuid(plot_id, "plot_id"),
             Plot.tenant_id == current_user.tenant_id,
         )
     )
@@ -472,12 +568,18 @@ async def update_plot(
         raise NotFoundException("Plot not found")
 
     update_data = body.model_dump(exclude_unset=True)
-    if "status" in update_data and update_data["status"] != plot.status.value:
+    if "status" in update_data:
+        new_status = update_data["status"]
+        new_status_value = new_status.value if isinstance(new_status, PlotStatus) else new_status
+    else:
+        new_status_value = None
+    current_status_value = plot.status.value if isinstance(plot.status, PlotStatus) else plot.status
+    if new_status_value is not None and new_status_value != current_status_value:
         from ...models import PlotStatusHistory
         history = PlotStatusHistory(
             plot_id=plot.id,
-            old_status=plot.status.value if isinstance(plot.status, PlotStatus) else plot.status,
-            new_status=update_data["status"],
+            old_status=current_status_value,
+            new_status=new_status_value,
             changed_by=current_user.id,
         )
         session.add(history)
@@ -499,9 +601,13 @@ async def bulk_delete_plots(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    try:
+        parsed_plot_ids = [_parse_uuid(pid, "plot_id") for pid in plot_ids]
+    except BadRequestException:
+        raise
     result = await session.execute(
         select(Plot).where(
-            Plot.id.in_([UUID(pid) for pid in plot_ids]),
+            Plot.id.in_(parsed_plot_ids),
             Plot.tenant_id == current_user.tenant_id,
         )
     )
@@ -520,7 +626,7 @@ async def delete_plot(
 ):
     result = await session.execute(
         select(Plot).where(
-            Plot.id == UUID(plot_id),
+            Plot.id == _parse_uuid(plot_id, "plot_id"),
             Plot.tenant_id == current_user.tenant_id,
         )
     )

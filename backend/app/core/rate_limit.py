@@ -25,7 +25,8 @@ class RedisRateLimiter:
             if count >= self.max_requests:
                 raise RateLimitException("Too many requests. Please try again later.")
 
-            await redis.zadd(key, {str(now): now})
+            member = f"{now}:{time.monotonic_ns()}"
+            await redis.zadd(key, {member: now})
             await redis.expire(key, self.window_seconds)
         finally:
             await redis.aclose()

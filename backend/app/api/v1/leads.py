@@ -7,7 +7,7 @@ from ...core.exceptions import NotFoundException
 from ...core.rate_limit import check_rate_limit
 from ...models import Lead, Plot, User
 from ...schemas import LeadCreate, LeadResponse
-from ..deps import get_current_user
+from ..deps import get_current_user, get_tenant_scope_optional
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -17,11 +17,18 @@ async def create_lead(
     body: LeadCreate,
     request: Request,
     session: AsyncSession = Depends(get_session),
+    tenant_id = Depends(get_tenant_scope_optional),
 ):
     await check_rate_limit(request)
+    if tenant_id is None:
+        raise NotFoundException("Plot not found")
 
     result = await session.execute(
-        select(Plot).where(Plot.id == body.plot_id, Plot.is_active)
+        select(Plot).where(
+            Plot.id == body.plot_id,
+            Plot.tenant_id == tenant_id,
+            Plot.is_active,
+        )
     )
     plot = result.scalar_one_or_none()
     if not plot:

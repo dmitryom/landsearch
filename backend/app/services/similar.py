@@ -7,12 +7,18 @@ from ..models import Plot
 async def find_similar_plots(
     session: AsyncSession,
     plot_id: str,
+    tenant_id=None,
     limit: int = 10,
 ) -> list[Plot]:
     from uuid import UUID
-    result = await session.execute(
-        select(Plot).where(Plot.id == UUID(plot_id), Plot.is_active)
+    source_id = plot_id if isinstance(plot_id, UUID) else UUID(str(plot_id))
+    source_stmt = select(Plot).where(
+        Plot.id == source_id,
+        Plot.is_active,
     )
+    if tenant_id is not None:
+        source_stmt = source_stmt.where(Plot.tenant_id == tenant_id)
+    result = await session.execute(source_stmt)
     source = result.scalar_one_or_none()
     if not source:
         return []

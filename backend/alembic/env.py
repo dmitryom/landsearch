@@ -5,6 +5,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.core.config import settings
 from app.core.database import Base
 from app.models import *  # noqa: F401, F403
 
@@ -14,7 +15,6 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-from app.core.config import settings
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
 

@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Plot
-from app.services.cadastre import _find_with_retry, _extract_geometry, _NSPD_AVAILABLE
+from app.services.cadastre import _extract_geometry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,10 +37,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv(
-    "LANDSEARCH_DATABASE_URL",
-    "postgresql+asyncpg://landsearch:FMmEHcWlw1cY2kTxeWuZ@localhost:5432/landsearch",
-)
+DATABASE_URL = os.getenv("LANDSEARCH_DATABASE_URL")
+if not DATABASE_URL:
+    raise SystemExit("LANDSEARCH_DATABASE_URL must be set")
 
 
 class BlockGuard:

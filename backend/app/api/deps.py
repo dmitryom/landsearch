@@ -1,14 +1,14 @@
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from ..core.database import get_session
-from ..models import User, UserRole
+from ..core.security import decode_access_token
+from ..models import Tenant, User, UserRole
 
 security = HTTPBearer(auto_error=False)
 
@@ -35,19 +35,41 @@ async def get_current_user_optional(
 
 
 async def _resolve_user(token: str, session: AsyncSession) -> User:
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Invalid token")
-    except JWTError:
+    payload = decode_access_token(token)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user_id = payload.get("sub")
+    if user_id is None:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    result = await session.execute(select(User).where(User.id == UUID(user_id)))
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    result = await session.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
+
+
+async def get_tenant_scope_optional(
+    current_user: User | None = Depends(get_current_user_optional),
+    session: AsyncSession = Depends(get_session),
+) -> UUID | None:
+    if current_user:
+        return current_user.tenant_id
+    if not settings.public_tenant_slug:
+        return None
+
+    result = await session.execute(
+        select(Tenant.id).where(
+            Tenant.slug == settings.public_tenant_slug,
+            Tenant.is_active,
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 def require_role(role: UserRole):

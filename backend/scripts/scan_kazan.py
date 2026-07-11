@@ -24,7 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
@@ -33,10 +33,9 @@ from app.models import Plot, PlotStatus, Tenant
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv(
-    "LANDSEARCH_DATABASE_URL",
-    "postgresql+asyncpg://landsearch:FMmEHcWlw1cY2kTxeWuZ@localhost:5432/landsearch",
-)
+DATABASE_URL = os.getenv("LANDSEARCH_DATABASE_URL")
+if not DATABASE_URL:
+    raise SystemExit("LANDSEARCH_DATABASE_URL must be set")
 
 DISTRICTS = {
     "16:24": "Казань",
@@ -154,7 +153,7 @@ async def scan_district(session: AsyncSession, code: str, name: str, tenant_id: 
 
     features = await asyncio.to_thread(nspd_search, f"{code}:%")
     if not features:
-        logger.info(f"  NSPD returned nothing")
+        logger.info("  NSPD returned nothing")
         return 0
 
     logger.info(f"  NSPD returned {len(features)} features")

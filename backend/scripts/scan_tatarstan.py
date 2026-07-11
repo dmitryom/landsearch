@@ -31,10 +31,9 @@ from app.models import Plot, PlotStatus, Tenant
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.getenv(
-    "LANDSEARCH_DATABASE_URL",
-    "postgresql+asyncpg://landsearch:FMmEHcWlw1cY2kTxeWuZ@localhost:5432/landsearch",
-)
+DATABASE_URL = os.getenv("LANDSEARCH_DATABASE_URL")
+if not DATABASE_URL:
+    raise SystemExit("LANDSEARCH_DATABASE_URL must be set")
 
 DISTRICTS = {f"16:{i:02d}": f"Район {i:02d}" for i in range(1, 53)}
 

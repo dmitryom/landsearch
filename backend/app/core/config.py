@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     secret_key: str = ""
     access_token_expire_minutes: int = 60 * 24
+    public_tenant_slug: str | None = "demo-tenant"
 
     cors_origins: str = "http://195.2.74.197,https://195.2.74.197,http://localhost:3000,http://127.0.0.1,http://127.0.0.1:3000"
 

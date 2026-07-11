@@ -3,13 +3,12 @@
 
 import asyncio
 import logging
-import uuid
+import os
 import random
 
 from shapely.geometry import shape, box
-from shapely.ops import unary_union
-from geoalchemy2.shape import from_shape, to_shape
-from sqlalchemy import select, delete, text
+from geoalchemy2.shape import from_shape
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 import sys
@@ -22,7 +21,9 @@ from app.models import Tenant, User, UserRole, Settlement, Plot, PlotStatus
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger("seed")
 
-DATABASE_URL = "postgresql+asyncpg://landsearch:FMmEHcWlw1cY2kTxeWuZ@localhost:5432/landsearch"
+DATABASE_URL = os.getenv("LANDSEARCH_DATABASE_URL")
+if not DATABASE_URL:
+    raise SystemExit("LANDSEARCH_DATABASE_URL must be set")
 
 engine = create_async_engine(DATABASE_URL, echo=False)
 session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

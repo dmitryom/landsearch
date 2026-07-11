@@ -32,9 +32,13 @@ def _area_m2(poly) -> float:
 async def _load_plots_for_analysis(
     session: AsyncSession,
     settlement_id: str,
-    current_user: User | None,
+    tenant_id=None,
 ) -> tuple[Settlement, list[Plot]]:
-    settlement = await session.get(Settlement, UUID(settlement_id))
+    stmt = select(Settlement).where(Settlement.id == UUID(settlement_id))
+    if tenant_id is not None:
+        stmt = stmt.where(Settlement.tenant_id == tenant_id)
+    result = await session.execute(stmt)
+    settlement = result.scalar_one_or_none()
     if not settlement:
         raise ValueError("Settlement not found")
 
@@ -42,8 +46,8 @@ async def _load_plots_for_analysis(
         Plot.settlement_id == UUID(settlement_id),
         Plot.is_active,
     )
-    if current_user:
-        stmt = stmt.where(Plot.tenant_id == current_user.tenant_id)
+    if tenant_id is not None:
+        stmt = stmt.where(Plot.tenant_id == tenant_id)
     result = await session.execute(stmt)
     plots = list(result.scalars().all())
 
@@ -164,10 +168,12 @@ async def analyze_settlement(
     session: AsyncSession,
     settlement_id: str,
     current_user: User | None = None,
+    tenant_id=None,
     min_area: float | None = None,
     max_area: float | None = None,
 ) -> dict:
-    settlement, plots = await _load_plots_for_analysis(session, settlement_id, current_user)
+    scope_tenant_id = tenant_id if tenant_id is not None else getattr(current_user, "tenant_id", None)
+    settlement, plots = await _load_plots_for_analysis(session, settlement_id, scope_tenant_id)
 
     boundary_poly = None
     if settlement.geometry:

@@ -4,7 +4,6 @@
 import json
 import subprocess
 import time
-import sys
 import urllib.request
 
 BASE = "https://v3163460.hosted-by-vdsina.ru"
@@ -43,7 +42,7 @@ def check_services():
     if health and health.get("status") == "ok":
         pg = health.get("services", {}).get("postgres", "?")
         rd = health.get("services", {}).get("redis", "?")
-        print(f"  Backend:        OK")
+        print("  Backend:        OK")
         print(f"  PostgreSQL:     {pg}")
         print(f"  Redis:          {rd}")
     else:

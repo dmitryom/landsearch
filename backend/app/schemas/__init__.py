@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..models import PlotStatus
+
 
 class UserCreate(BaseModel):
     email: str = Field(..., max_length=255)
@@ -49,7 +51,7 @@ class PlotCreate(BaseModel):
     registration_date: str | None = Field(None, max_length=50)
     ownership_form: str | None = Field(None, max_length=100)
     price: float | None = Field(None, ge=0)
-    status: str = "free"
+    status: PlotStatus = PlotStatus.free
     title: str | None = Field(None, max_length=500)
     description: str | None = None
     settlement_id: str | None = None
@@ -67,7 +69,7 @@ class PlotUpdate(BaseModel):
     registration_date: str | None = Field(None, max_length=50)
     ownership_form: str | None = Field(None, max_length=100)
     price: float | None = Field(None, ge=0)
-    status: str | None = None
+    status: PlotStatus | None = None
     title: str | None = Field(None, max_length=500)
     description: str | None = None
     photos: list[str] | None = None

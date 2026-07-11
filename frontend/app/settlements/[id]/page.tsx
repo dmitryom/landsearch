@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
@@ -19,6 +19,7 @@ export default function SettlementAnalysisPage() {
   const [baseLayer, setBaseLayer] = useState('satellite')
   const mapRef = useRef<maplibregl.Map | null>(null)
   const reinitGuard = useRef(false)
+  const appliedBaseLayerRef = useRef(baseLayer)
 
   useEffect(() => {
     if (!id) return
@@ -35,6 +36,30 @@ export default function SettlementAnalysisPage() {
       .finally(() => setLoading(false))
   }, [id])
 
+  const reinit = useCallback(async (map: maplibregl.Map) => {
+    if (!id || reinitGuard.current) return
+    reinitGuard.current = true
+
+    try {
+      const [settlement, geo] = await Promise.all([
+        api.settlements.get(id),
+        api.plots.geo({ settlement_id: id }),
+      ])
+
+      const safeAdd = () => {
+        addLayers(map, settlement.geometry, geo)
+      }
+
+      if (!map.isStyleLoaded()) {
+        map.once('style.load', safeAdd)
+      } else {
+        safeAdd()
+      }
+    } catch {
+      reinitGuard.current = false
+    }
+  }, [id])
+
   useEffect(() => {
     if (!id || typeof window === 'undefined') return
     if (mapRef.current) return
@@ -47,45 +72,34 @@ export default function SettlementAnalysisPage() {
       zoom: 12,
     })
     mapRef.current = map
+    appliedBaseLayerRef.current = baseLayer
 
-    const reinit = async () => {
-      if (reinitGuard.current) return
-      reinitGuard.current = true
-
-      try {
-        const [settlement, geo] = await Promise.all([
-          api.settlements.get(id),
-          api.plots.geo({ settlement_id: id }),
-        ])
-
-        const safeAdd = () => {
-          addLayers(map, settlement.geometry, geo)
-        }
-
-        if (!map.isStyleLoaded()) {
-          map.once('style.load', safeAdd)
-        } else {
-          safeAdd()
-        }
-      } catch {
-        reinitGuard.current = false
-      }
+    const loadLayers = () => {
+      void reinit(map)
     }
 
-    map.once('style.load', reinit)
-    setTimeout(reinit, 500)
+    map.once('style.load', loadLayers)
+    setTimeout(loadLayers, 500)
 
     return () => { map.remove(); mapRef.current = null; reinitGuard.current = false }
-  }, [id])
+  }, [baseLayer, id, reinit])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
+    if (appliedBaseLayerRef.current === baseLayer) return
     const style = BASE_LAYERS.find((l) => l.id === baseLayer)?.style
     if (style && map.isStyleLoaded()) {
       map.setStyle(style)
+      appliedBaseLayerRef.current = baseLayer
+      reinitGuard.current = false
+      const loadLayers = () => {
+        void reinit(map)
+      }
+      map.once('style.load', loadLayers)
+      setTimeout(loadLayers, 500)
     }
-  }, [baseLayer])
+  }, [baseLayer, reinit])
 
   const switchLayer = (layerId: string) => {
     setBaseLayer(layerId)

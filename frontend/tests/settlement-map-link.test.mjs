@@ -8,6 +8,12 @@ import { tmpdir } from 'node:os'
 import test from 'node:test'
 
 const settlementPage = new URL('../app/settlements/[id]/page.tsx', import.meta.url)
+const homePage = new URL('../app/page.tsx', import.meta.url)
+const loginPage = new URL('../app/auth/login/page.tsx', import.meta.url)
+const mapViewComponent = new URL('../components/MapView.tsx', import.meta.url)
+const layerSwitcherComponent = new URL('../components/LayerSwitcher.tsx', import.meta.url)
+const constantsModule = new URL('../lib/constants.ts', import.meta.url)
+const mapTilesModule = new URL('../lib/map-tiles.ts', import.meta.url)
 const nginxMapLocation = new URL('../../deploy/nginx/corner-bright-landscanner-map.conf', import.meta.url)
 const publishScript = fileURLToPath(new URL('../../scripts/publish-landscanner-map.sh', import.meta.url))
 const frontendDirectory = fileURLToPath(new URL('../', import.meta.url))
@@ -19,6 +25,61 @@ test('Corner Bright settlement page exposes the generated map command', async ()
   assert.match(source, /eafe5fc4-165f-421e-aa79-3ae786458627/)
   assert.match(source, /Карта посёлка/)
   assert.match(source, /\/settlements\/\$\{id\}\/map/)
+})
+
+test('settlement analysis map reinitializes layers after base-layer switches', async () => {
+  const source = await readFile(settlementPage, 'utf8')
+  const styleSwitchIndex = source.indexOf('map.setStyle(style)')
+  const styleSwitchBlock = source.slice(Math.max(0, styleSwitchIndex - 200), styleSwitchIndex + 500)
+
+  assert.notEqual(styleSwitchIndex, -1)
+  assert.match(styleSwitchBlock, /reinitGuard\.current = false/)
+  assert.match(styleSwitchBlock, /map\.once\('style\.load', loadLayers\)/)
+  assert.match(styleSwitchBlock, /setTimeout\(loadLayers, 500\)/)
+})
+
+test('map vector tiles use the configured API base without double-origin URLs', async () => {
+  const mapView = await readFile(mapViewComponent, 'utf8')
+  const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
+  const mapTiles = await readFile(mapTilesModule, 'utf8')
+
+  assert.match(mapView, /buildPlotTileUrl/)
+  assert.match(layerSwitcher, /buildPlotTileUrl/)
+  assert.match(mapTiles, /absoluteApiPath/)
+  assert.doesNotMatch(mapView, /window\.location\.origin[^\\n]+API/)
+  assert.doesNotMatch(layerSwitcher, /\/api\/v1\/plots\/tiles/)
+})
+
+test('base map layers do not rely on missing local tile proxy routes', async () => {
+  const source = await readFile(constantsModule, 'utf8')
+  const baseLayersIndex = source.indexOf('export const BASE_LAYERS')
+  const baseLayersSource = source.slice(baseLayersIndex)
+
+  assert.notEqual(baseLayersIndex, -1)
+  assert.doesNotMatch(baseLayersSource, /tiles:\s*\[\s*['"]\/tiles\//)
+  assert.match(baseLayersSource, /https:\/\/tile\.openstreetmap\.org/)
+  assert.match(baseLayersSource, /https:\/\/server\.arcgisonline\.com/)
+})
+
+test('home land search filters are applied to map vector tile requests', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const mapView = await readFile(mapViewComponent, 'utf8')
+  const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
+
+  assert.match(home, /<MapView[\s\S]*filters=\{filters\}/)
+  assert.match(home, /<LayerSwitcher[\s\S]*filters=\{filters\}/)
+  assert.match(mapView, /buildPlotTileUrl\(filters\)/)
+  assert.match(layerSwitcher, /buildPlotTileUrl\(filters\)/)
+  assert.match(mapView, /setTiles\(\[tileUrl\]\)/)
+})
+
+test('login form labels are associated with their inputs for mouse and keyboard users', async () => {
+  const source = await readFile(loginPage, 'utf8')
+
+  assert.match(source, /<label[^>]+htmlFor="email"/)
+  assert.match(source, /<input[\s\S]*id="email"[\s\S]*type="email"/)
+  assert.match(source, /<label[^>]+htmlFor="password"/)
+  assert.match(source, /<input[\s\S]*id="password"[\s\S]*type="password"/)
 })
 
 test('Nginx publishes only the reviewed Corner Bright artifact', async () => {

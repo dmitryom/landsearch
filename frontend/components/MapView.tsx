@@ -1,12 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useMemo } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { BASE_LAYERS, buildVriFillExpr, buildVriBorderExpr } from '@/lib/constants'
 import { log } from '@/lib/logger'
-
-const API = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+import { buildPlotTileUrl } from '@/lib/map-tiles'
 
 function detectWebGL(): string {
   try {
@@ -22,14 +21,6 @@ function detectWebGL(): string {
   }
 }
 
-function mapSourceExists(map: maplibregl.Map, sourceId: string) {
-  try {
-    return !!map.getSource(sourceId)
-  } catch {
-    return false
-  }
-}
-
 export interface MapViewHandle {
   flyTo: (lng: number, lat: number, zoom?: number) => void
 }
@@ -38,22 +29,37 @@ export default function MapView({
   onMapReady,
   onPlotClick,
   mapRef,
+  filters = {},
 }: {
   onMapReady?: (map: maplibregl.Map) => void
   onPlotClick?: (props: Record<string, any>) => void
   mapRef?: React.MutableRefObject<maplibregl.Map | null>
+  filters?: Record<string, string>
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const internalMapRef = useRef<maplibregl.Map | null>(null)
   const mapReadyRef = useRef(false)
-  const tileUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}${API}/plots/tiles/{z}/{x}/{y}.mvt`
+  const onMapReadyRef = useRef(onMapReady)
+  const onPlotClickRef = useRef(onPlotClick)
+  const tileUrl = useMemo(() => buildPlotTileUrl(filters), [filters])
+  const tileUrlRef = useRef(tileUrl)
+
+  useEffect(() => { onMapReadyRef.current = onMapReady }, [onMapReady])
+  useEffect(() => { onPlotClickRef.current = onPlotClick }, [onPlotClick])
+  useEffect(() => { tileUrlRef.current = tileUrl }, [tileUrl])
 
   const initMapLayers = useCallback((map: maplibregl.Map) => {
-    if (mapSourceExists(map, 'plots-tiles')) return
+    const existingSource = map.getSource('plots-tiles') as (maplibregl.VectorTileSource & { setTiles?: (tiles: string[]) => void }) | undefined
+    if (existingSource) {
+      if (typeof existingSource.setTiles === 'function') {
+        existingSource.setTiles([tileUrlRef.current])
+      }
+      return
+    }
     log('map', 'Добавление MVT tile слоёв')
     map.addSource('plots-tiles', {
       type: 'vector',
-      tiles: [tileUrl],
+      tiles: [tileUrlRef.current],
       minzoom: 8,
       maxzoom: 18,
     })
@@ -78,16 +84,28 @@ export default function MapView({
       },
     })
     map.on('click', 'plots-fill', (e) => {
-      if (e.features?.[0]) onPlotClick?.(e.features[0].properties as Record<string, any>)
+      if (e.features?.[0]) onPlotClickRef.current?.(e.features[0].properties as Record<string, any>)
     })
     map.on('click', 'plots-points', (e) => {
-      if (e.features?.[0]) onPlotClick?.(e.features[0].properties as Record<string, any>)
+      if (e.features?.[0]) onPlotClickRef.current?.(e.features[0].properties as Record<string, any>)
     })
     map.on('mouseenter', 'plots-fill', () => { map.getCanvas().style.cursor = 'pointer' })
     map.on('mouseleave', 'plots-fill', () => { map.getCanvas().style.cursor = '' })
     map.on('mouseenter', 'plots-points', () => { map.getCanvas().style.cursor = 'pointer' })
     map.on('mouseleave', 'plots-points', () => { map.getCanvas().style.cursor = '' })
-  }, [tileUrl, onPlotClick])
+  }, [])
+
+  useEffect(() => {
+    const map = internalMapRef.current
+    if (!map || !mapReadyRef.current) return
+    const source = map.getSource('plots-tiles') as (maplibregl.VectorTileSource & { setTiles?: (tiles: string[]) => void }) | undefined
+    if (source && typeof source.setTiles === 'function') {
+      source.setTiles([tileUrl])
+      map.triggerRepaint()
+      return
+    }
+    if (map.isStyleLoaded()) initMapLayers(map)
+  }, [initMapLayers, tileUrl])
 
   useEffect(() => {
     if (!containerRef.current || internalMapRef.current) return
@@ -117,7 +135,7 @@ export default function MapView({
         log('map', `Map LOAD event fired after ${Math.round(performance.now())}ms`)
         mapReadyRef.current = true
         initMapLayers(map)
-        onMapReady?.(map)
+        onMapReadyRef.current?.(map)
       })
 
       map.on('sourcedata', (e) => {
@@ -131,7 +149,7 @@ export default function MapView({
         if (mounted && !mapReadyRef.current) {
           log('error', 'TIMEOUT: map.on(load) не сработал за 15 сек')
           mapReadyRef.current = true
-          onMapReady?.(map)
+          onMapReadyRef.current?.(map)
         }
       }, 15000)
 
@@ -146,9 +164,9 @@ export default function MapView({
     } catch (e: any) {
       log('error', 'Map init CRASH', `${e.message}\n${e.stack}`)
       mounted = false
-      onMapReady?.(null as any)
+      onMapReadyRef.current?.(null as any)
     }
-  }, [initMapLayers, mapRef, onMapReady])
+  }, [initMapLayers, mapRef])
 
   return <div ref={containerRef} className="w-full h-full" />
 }

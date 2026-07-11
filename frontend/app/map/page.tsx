@@ -5,13 +5,11 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapView from '@/components/MapView'
 import LayerSwitcher from '@/components/LayerSwitcher'
-import { api } from '@/lib/api'
 
 export default function MapPage() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const [baseLayer, setBaseLayer] = useState('osm')
-  const [filters, setFilters] = useState({ status: '', permitted_use: '' })
-  const [showLayers, setShowLayers] = useState(false)
+  const [filters, setFilters] = useState<Record<string, string>>({})
 
   return (
     <div className="h-screen flex flex-col">
@@ -19,8 +17,13 @@ export default function MapPage() {
         <a href="/" className="text-blue-600">&larr; На главную</a>
         <h1 className="font-bold">LandSearch — Карта</h1>
         <select
-          value={filters.status}
-          onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+          value={filters.status || ''}
+          onChange={(e) => setFilters((f) => {
+            const next = { ...f }
+            if (e.target.value) next.status = e.target.value
+            else delete next.status
+            return next
+          })}
           className="ml-auto border rounded px-2 py-1 text-sm"
         >
           <option value="">Все статусы</option>
@@ -29,10 +32,10 @@ export default function MapPage() {
           <option value="booked">Забронирован</option>
           <option value="sold">Продан</option>
         </select>
-        <LayerSwitcher map={mapRef.current} currentLayer={baseLayer} onChange={setBaseLayer} />
+        <LayerSwitcher map={mapRef.current} currentLayer={baseLayer} onChange={setBaseLayer} filters={filters} />
       </div>
       <div className="flex-1 relative">
-        <MapView mapRef={mapRef} />
+        <MapView mapRef={mapRef} filters={filters} />
       </div>
     </div>
   )

@@ -6,6 +6,7 @@ import { BASE_LAYERS } from '@/lib/constants'
 import maplibregl from 'maplibre-gl'
 import { log } from '@/lib/logger'
 import { buildVriFillExpr, buildVriBorderExpr } from '@/lib/constants'
+import { buildPlotTileUrl } from '@/lib/map-tiles'
 
 function mapSourceExists(map: maplibregl.Map, sourceId: string) {
   try { return !!map.getSource(sourceId) } catch { return false }
@@ -15,10 +16,12 @@ export default function LayerSwitcher({
   map,
   currentLayer,
   onChange,
+  filters = {},
 }: {
   map: maplibregl.Map | null
   currentLayer: string
   onChange: (id: string) => void
+  filters?: Record<string, string>
 }) {
   const [open, setOpen] = useState(false)
 
@@ -26,6 +29,7 @@ export default function LayerSwitcher({
     if (!map) return
     const layer = BASE_LAYERS.find(l => l.id === id)
     if (!layer) return
+    const tileUrl = buildPlotTileUrl(filters)
     log('map', 'Switching layer', id)
     onChange(id)
     map.setStyle(layer.style)
@@ -37,7 +41,7 @@ export default function LayerSwitcher({
       if (!mapSourceExists(map, 'plots-tiles')) {
         map.addSource('plots-tiles', {
           type: 'vector',
-          tiles: [`${typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/plots/tiles/{z}/{x}/{y}.mvt`],
+          tiles: [tileUrl],
           minzoom: 8,
           maxzoom: 18,
         })

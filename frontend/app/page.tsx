@@ -51,10 +51,11 @@ export default function HomePage() {
   useEffect(() => { loadData(filters) }, [filters, loadData])
 
   const handleSearch = async (q: string) => {
-    if (!q) { setFilters({}); return }
-    const results = await api.search.suggest(q)
+    const query = q.trim()
+    if (!query) { setFilters({}); return }
+    const results = await api.search.suggest(query)
     if (results.results.length > 0) {
-      setFilters((prev) => ({ ...prev, query: q }))
+      setFilters((prev) => ({ ...prev, query }))
     }
   }
 
@@ -124,6 +125,7 @@ export default function HomePage() {
           <div className="absolute inset-0 z-0">
             <MapView
               mapRef={mapRef}
+              filters={filters}
               onMapReady={() => setMapInit(true)}
               onPlotClick={handlePlotClick}
             />
@@ -151,7 +153,7 @@ export default function HomePage() {
           {selectedPlot && <PlotPopup plot={selectedPlot} onClose={() => setSelectedPlot(null)} />}
 
           <div className="absolute top-4 right-12 sm:right-16 z-10">
-            <LayerSwitcher map={mapRef.current} currentLayer={baseLayer} onChange={setBaseLayer} />
+            <LayerSwitcher map={mapRef.current} currentLayer={baseLayer} onChange={setBaseLayer} filters={filters} />
           </div>
 
           <VriLegend />

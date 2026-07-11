@@ -26,6 +26,7 @@ dependencies = [
     "openpyxl>=3.1.0",
     "pandas>=2.0.0",
     "pynspd>=1.1.0",
+    "prometheus-client>=0.21.0",
     "shapely>=2.0.0",
     "celery[redis]>=5.4.0",
     "redis>=5.0.0",
