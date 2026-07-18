@@ -124,6 +124,9 @@ test('public map shows clustered POIs from all settlements', async () => {
   const poiMap = await readFile(settlementPoiMap, 'utf8')
 
   assert.match(mapView, /api\.pois\.geo\(\{ bbox/)
+  assert.match(mapView, /poiFetchRef\.current\?\.\(resultBounds\)/)
+  assert.match(mapView, /boundsOverride instanceof maplibregl\.LngLatBounds/)
+  assert.match(mapView, /new maplibregl\.LngLatBounds\(boundsOverride\)/)
   assert.doesNotMatch(mapView, /api\.pois\.geo\(\{[^}]*settlement_id/)
   assert.match(poiMap, /cluster: true/)
   assert.match(poiMap, /settlement_name/)
@@ -809,16 +812,29 @@ test('Nginx proxies and caches same-origin OpenFreeMap road tiles', async () => 
 
   assert.match(source, /proxy_cache_path \/var\/cache\/nginx\/landsearch-roads/)
   assert.match(source, /keys_zone=roads_tiles:32m/)
+  assert.match(source, /resolver 1\.1\.1\.1 8\.8\.8\.8 ipv6=off/)
+  assert.match(source, /set \$roads_upstream tiles\.openfreemap\.org;/)
   assert.match(source, /location = \/tiles\/roads\/tiles\.json/)
-  assert.match(source, /proxy_pass https:\/\/tiles\.openfreemap\.org\/planet;/)
+  assert.match(source, /rewrite \^ \/planet break;/)
+  assert.match(source, /proxy_pass https:\/\/\$roads_upstream;/)
   assert.match(source, /proxy_set_header Accept-Encoding "";/)
   assert.match(source, /sub_filter_types application\/json;/)
   assert.match(source, /sub_filter 'https:\/\/tiles\.openfreemap\.org\/planet\/' '\$scheme:\/\/\$host\/tiles\/roads\/';/)
   assert.match(source, /location \/tiles\/roads\//)
-  assert.match(source, /proxy_pass https:\/\/tiles\.openfreemap\.org\/planet\//)
+  assert.match(source, /rewrite \^\/tiles\/roads\/\(\.\*\)\$ \/planet\/\$1 break;/)
+  assert.match(source, /proxy_connect_timeout 3s;/)
   assert.match(source, /proxy_cache_use_stale error timeout invalid_header updating http_500 http_502 http_503 http_504;/)
   assert.match(source, /X-Road-Tile-Cache/)
   assert.match(source, /Access-Control-Allow-Origin "\*" always/)
+})
+
+test('Nginx resolves the glyph proxy over IPv4 with bounded timeouts', async () => {
+  const source = await readFile(nginxConfig, 'utf8')
+
+  assert.match(source, /set \$glyph_upstream demotiles\.maplibre\.org;/)
+  assert.match(source, /rewrite \^\/settlement-map-glyphs\/\(\.\*\)\$ \/font\/\$1 break;/)
+  assert.match(source, /proxy_pass https:\/\/\$glyph_upstream;/)
+  assert.match(source, /location \/settlement-map-glyphs\/[\s\S]*proxy_connect_timeout 3s;/)
 })
 
 test('artifact publisher self-hosts LandScanner map dependencies', async () => {

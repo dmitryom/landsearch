@@ -123,7 +123,7 @@ export default function MapView({
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null)
   const poiAbortControllerRef = useRef<AbortController | null>(null)
   const poiMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const poiFetchRef = useRef<(() => void) | null>(null)
+  const poiFetchRef = useRef<((bounds?: maplibregl.LngLatBoundsLike) => void) | null>(null)
   const showRoadsRef = useRef(showRoads)
   const showSettlementPoisRef = useRef(showSettlementPois)
   const showTatarstanCadastreRef = useRef(showTatarstanCadastre)
@@ -225,6 +225,7 @@ export default function MapView({
     const map = internalMapRef.current
     if (!map || !mapLoaded || !resultBounds) return
     const compactViewport = map.getContainer().clientWidth < 768
+    poiFetchRef.current?.(resultBounds)
     map.fitBounds(resultBounds, {
       padding: compactViewport
         ? { top: 72, right: 32, bottom: selectedPlot ? 280 : Math.min(resultTrayHeight + 32, 420), left: 32 }
@@ -273,9 +274,13 @@ export default function MapView({
       })
       log('map', 'Map object created')
 
-      const fetchPoiData = () => {
+      const fetchPoiData = (boundsOverride?: maplibregl.LngLatBoundsLike) => {
         if (!mounted || !mapReadyRef.current || !showSettlementPoisRef.current) return
-        const bounds = map.getBounds()
+        const bounds = boundsOverride instanceof maplibregl.LngLatBounds
+          ? boundsOverride
+          : boundsOverride
+            ? new maplibregl.LngLatBounds(boundsOverride)
+            : map.getBounds()
         const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')
         poiAbortControllerRef.current?.abort()
         const controller = new AbortController()
@@ -401,8 +406,8 @@ export default function MapView({
       poiAbortControllerRef.current = null
       return
     }
-    poiFetchRef.current?.()
-  }, [mapLoaded, showSettlementPois])
+    poiFetchRef.current?.(resultBounds || undefined)
+  }, [mapLoaded, resultBounds, showSettlementPois])
 
   useEffect(() => {
     const map = internalMapRef.current

@@ -10,7 +10,7 @@ test('POI viewport requests follow the visibility toggle without reinitializing 
 
   assert.match(source, /showSettlementPoisRef\.current\) return/)
   assert.match(source, /poiAbortControllerRef\.current\?\.abort\(\)/)
-  assert.match(source, /poiFetchRef\.current\?\.\(\)/)
+  assert.match(source, /poiFetchRef\.current\?\.\(resultBounds \|\| undefined\)/)
   assert.match(source, /poiFetchRef\.current = fetchPoiData/)
 })
 
