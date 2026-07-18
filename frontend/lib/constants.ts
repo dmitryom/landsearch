@@ -17,6 +17,9 @@ export const STATUS_COLORS: Record<string, string> = {
   sold: '#ef4444',
 }
 
+export const ROAD_CASING_COLOR = '#4B5563'
+export const ROAD_SURFACE_COLOR = '#D9DEE5'
+
 export const STATUS_LABELS: Record<string, string> = {
   free: 'Свободен',
   reserved: 'В резерве',
@@ -51,7 +54,7 @@ export const VRI_COLORS: Record<string, string> = {
   ОТДЫХ: '#56B4E9',
   ЖИЛОЙ: '#0072B2',
   СОЦИАЛЬНЫЙ: '#7CB342',
-  ТРАНСПОРТ: '#4B5563',
+  ТРАНСПОРТ: ROAD_SURFACE_COLOR,
   СВЯЗЬ: '#A78BFA',
   ОБОРОНА: '#111827',
   ЛЕСНОЙ: '#006D2C',
@@ -94,6 +97,7 @@ const VRI_RULES: [string, string][] = [
   ['ТРАНСПОРТ', 'автомобиль'],
   ['ТРАНСПОРТ', 'автодорог'],
   ['ТРАНСПОРТ', 'дорожн'],
+  ['ТРАНСПОРТ', 'дорог'],
   ['КОМ', 'торгов'],
   ['КОМ', 'магазин'],
   ['КОМ', 'общественного питания'],
@@ -164,6 +168,11 @@ export function vriColor(use: string | null | undefined): string {
   return VRI_COLORS[normalizeVRI(use)] || VRI_DEFAULT_COLOR
 }
 
+export function plotFillColor(status: string | null | undefined, permittedUse?: string | null): string {
+  if (normalizeVRI(permittedUse) === 'ТРАНСПОРТ') return ROAD_SURFACE_COLOR
+  return STATUS_COLORS[String(status || '')] || '#9ca3af'
+}
+
 /* ── MapLibre match-выражения для раскраски MVT слоёв по vri_code ── */
 
 const _darken = (hex: string): string => {
@@ -196,6 +205,15 @@ export function buildStatusFillExpr(): any[] {
   for (const [status, color] of Object.entries(STATUS_COLORS)) expr.push(status, color)
   expr.push('#9ca3af')
   return expr
+}
+
+export function buildPlotFillExpr(): any[] {
+  return [
+    'case',
+    ['==', ['get', 'vri_code'], 'ТРАНСПОРТ'],
+    ROAD_SURFACE_COLOR,
+    buildStatusFillExpr(),
+  ]
 }
 
 export function buildStatusBorderExpr(): any[] {

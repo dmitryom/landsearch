@@ -1,5 +1,5 @@
 import maplibregl from 'maplibre-gl'
-import { buildStatusFillExpr, MAP_LABEL_FONT } from './constants'
+import { buildPlotFillExpr, MAP_LABEL_FONT } from './constants'
 import { buildNspdCadastreTileUrl, buildPlotTileUrl, NSPD_CADASTRAL_LAYER_IDS, TATARSTAN_REGION } from './map-tiles'
 
 export const PLOT_TILE_SOURCE_ID = 'plots-tiles'
@@ -137,7 +137,7 @@ export function addPlotTileLayers(map: maplibregl.Map, tileUrl: string): void {
       source: PLOT_TILE_SOURCE_ID,
       'source-layer': PLOT_TILE_SOURCE_LAYER,
       paint: {
-        'fill-color': buildStatusFillExpr() as any,
+        'fill-color': buildPlotFillExpr() as any,
         'fill-opacity': 0.55,
       },
     })
@@ -168,7 +168,7 @@ export function addPlotTileLayers(map: maplibregl.Map, tileUrl: string): void {
       minzoom: 8,
       filter: ['==', ['geometry-type'], 'Point'],
       paint: {
-        'circle-color': buildStatusFillExpr() as any,
+        'circle-color': buildPlotFillExpr() as any,
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 4, 14, 7, 18, 10] as any,
         'circle-opacity': 0.9,
         'circle-stroke-color': '#ffffff',

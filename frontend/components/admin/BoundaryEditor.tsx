@@ -5,7 +5,7 @@ import maplibregl, { type MapMouseEvent } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Check, Circle, Eraser, MousePointer2, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { api, type Settlement, type SettlementBoundaryMode } from '@/lib/api'
-import { BASE_LAYERS, DEFAULT_BASE_LAYER_ID, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
+import { BASE_LAYERS, buildPlotFillExpr, DEFAULT_BASE_LAYER_ID, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { addRoadLayers } from '@/lib/road-map-layers'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
 import { getGeometryBounds } from '@/lib/plot-bounds'
@@ -147,7 +147,7 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
       map.addSource('admin-plots', { type: 'vector', tiles: [buildPlotTileUrl({ settlement_id: settlement.id })], minzoom: 8, maxzoom: 18 })
       map.addLayer({
         id: 'admin-plots-fill', type: 'fill', source: 'admin-plots', 'source-layer': 'plots',
-        paint: { 'fill-color': ['match', ['get', 'status'], 'free', STATUS_COLORS.free, 'reserved', STATUS_COLORS.reserved, 'booked', STATUS_COLORS.booked, 'sold', STATUS_COLORS.sold, '#9ca3af'] as any, 'fill-opacity': 0.32 },
+        paint: { 'fill-color': buildPlotFillExpr() as any, 'fill-opacity': 0.32 },
       })
       map.addLayer({
         id: 'admin-plots-border', type: 'line', source: 'admin-plots', 'source-layer': 'plots', minzoom: 13,

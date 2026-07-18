@@ -1,4 +1,5 @@
 import maplibregl from 'maplibre-gl'
+import { ROAD_CASING_COLOR, ROAD_SURFACE_COLOR } from './constants'
 
 export const ROAD_SOURCE_ID = 'osm-roads'
 export const ROAD_TILEJSON_URL = '/tiles/roads/tiles.json'
@@ -12,8 +13,6 @@ export const ROAD_LAYER_IDS = [
   'osm-roads-track-surface',
 ] as const
 
-const ROAD_CASING_COLOR = '#4B5563'
-const ROAD_SURFACE_COLOR = '#D9DEE5'
 const ROAD_ATTRIBUTION = '© OpenStreetMap contributors · © OpenMapTiles · OpenFreeMap'
 
 const majorRoadFilter: maplibregl.FilterSpecification = [

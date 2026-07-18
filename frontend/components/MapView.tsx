@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import type { Plot } from '@/lib/api'
-import { BASE_LAYERS, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
+import { BASE_LAYERS, plotFillColor, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { log } from '@/lib/logger'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
 import { addPlotTileLayers, DEFAULT_NSPD_LAYER_VISIBILITY, setTatarstanCadastreLayer, updatePlotTileUrl, type NspdLayerVisibility } from '@/lib/plot-map-layers'
@@ -59,7 +59,7 @@ export interface MapViewHandle {
   flyTo: (lng: number, lat: number, zoom?: number) => void
 }
 
-type SelectedPlot = Partial<Plot> & { id?: string }
+type SelectedPlot = Partial<Plot> & { id?: string; use?: string; vri_code?: string }
 
 function selectedPlotData(plot: SelectedPlot) {
   return {
@@ -151,7 +151,7 @@ export default function MapView({
     }
 
     const status = String(plot.status || '')
-    const statusColor = STATUS_COLORS[status] || '#237a63'
+    const fillColor = plotFillColor(status, plot.vri_code || plot.permitted_use || plot.use)
     const source = map.getSource(SELECTED_PLOT_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
     if (source) source.setData(selectedPlotData(plot) as any)
     else map.addSource(SELECTED_PLOT_SOURCE_ID, { type: 'geojson', data: selectedPlotData(plot) as any })
@@ -161,10 +161,10 @@ export default function MapView({
         id: SELECTED_PLOT_FILL_ID,
         type: 'fill',
         source: SELECTED_PLOT_SOURCE_ID,
-        paint: { 'fill-color': statusColor, 'fill-opacity': 0.26 },
+        paint: { 'fill-color': fillColor, 'fill-opacity': 0.26 },
       })
     } else {
-      map.setPaintProperty(SELECTED_PLOT_FILL_ID, 'fill-color', statusColor)
+      map.setPaintProperty(SELECTED_PLOT_FILL_ID, 'fill-color', fillColor)
     }
 
     if (!map.getLayer(SELECTED_PLOT_BORDER_ID)) {

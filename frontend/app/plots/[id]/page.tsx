@@ -8,7 +8,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import LeadForm from '@/components/ui/LeadForm'
 import { api, Plot } from '@/lib/api'
-import { BASE_LAYERS, DEFAULT_BASE_LAYER_ID, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
+import { BASE_LAYERS, DEFAULT_BASE_LAYER_ID, plotFillColor, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { copyText } from '@/lib/clipboard'
 import { getGeometryBounds } from '@/lib/plot-bounds'
 import { addRoadLayers } from '@/lib/road-map-layers'
@@ -56,7 +56,7 @@ function addDetailPlotLayer(map: maplibregl.Map, plot: Plot, fit = false): void 
       type: 'fill',
       source: DETAIL_PLOT_SOURCE_ID,
       paint: {
-        'fill-color': STATUS_COLORS[plot.status] || '#22c55e',
+        'fill-color': plotFillColor(plot.status, plot.permitted_use),
         'fill-opacity': 0.42,
       },
     })

@@ -169,9 +169,11 @@ test('plot map layers expose white cadastral borders and a status legend', async
 
 test('road map layers use the approved neutral asphalt palette and OpenMapTiles classes', async () => {
   const roads = await readFile(roadMapLayersModule, 'utf8')
+  const constants = await readFile(constantsModule, 'utf8')
 
-  assert.match(roads, /#4B5563/)
-  assert.match(roads, /#D9DEE5/)
+  assert.match(constants, /ROAD_CASING_COLOR = '#4B5563'/)
+  assert.match(constants, /ROAD_SURFACE_COLOR = '#D9DEE5'/)
+  assert.match(roads, /ROAD_CASING_COLOR, ROAD_SURFACE_COLOR/)
   assert.match(roads, /'source-layer': 'transportation'/)
   assert.match(roads, /\/tiles\/roads\/tiles\.json/)
   assert.match(roads, /motorway/)
@@ -238,6 +240,32 @@ test('plot, settlement and boundary editor maps use the same road overlay', asyn
   assert.match(boundaryEditor, /addRoadLayers\(map, true, 'admin-plots-border'\)/)
 })
 
+test('parcels with road VRI use the neutral road fill ahead of sale status', async () => {
+  const constants = await readFile(constantsModule, 'utf8')
+  const plotLayers = await readFile(plotMapLayersModule, 'utf8')
+  const roadLayers = await readFile(roadMapLayersModule, 'utf8')
+  const mapView = await readFile(mapViewComponent, 'utf8')
+  const plotDetail = await readFile(plotDetailPage, 'utf8')
+  const boundaryEditor = await readFile(boundaryEditorComponent, 'utf8')
+  const backend = await readFile(backendPlotsApi, 'utf8')
+
+  assert.match(constants, /export const ROAD_SURFACE_COLOR = '#D9DEE5'/)
+  assert.match(constants, /export function buildPlotFillExpr\(\)/)
+  assert.match(constants, /\['==', \['get', 'vri_code'\], 'ТРАНСПОРТ'\]/)
+  assert.match(constants, /ROAD_SURFACE_COLOR,\s*buildStatusFillExpr\(\)/)
+  assert.match(constants, /export function plotFillColor\(/)
+  assert.match(constants, /normalizeVRI\(permittedUse\) === 'ТРАНСПОРТ'/)
+  assert.match(constants, /\['ТРАНСПОРТ', 'дорог'\]/)
+  assert.match(backend, /p\.permitted_use ILIKE '%дорог%'/)
+
+  assert.match(plotLayers, /'fill-color': buildPlotFillExpr\(\)/)
+  assert.match(plotLayers, /'circle-color': buildPlotFillExpr\(\)/)
+  assert.match(roadLayers, /ROAD_CASING_COLOR, ROAD_SURFACE_COLOR/)
+  assert.match(mapView, /plotFillColor\(status, plot\.vri_code \|\| plot\.permitted_use \|\| plot\.use\)/)
+  assert.match(plotDetail, /plotFillColor\(plot\.status, plot\.permitted_use\)/)
+  assert.match(boundaryEditor, /'fill-color': buildPlotFillExpr\(\)/)
+})
+
 test('result tray supports hidden, compact, expanded and resizable states', async () => {
   const home = await readFile(homePage, 'utf8')
   const plotCards = await readFile(plotCardListComponent, 'utf8')
@@ -254,11 +282,11 @@ test('result tray supports hidden, compact, expanded and resizable states', asyn
   assert.match(plotCards, /ResizeHandle/)
 })
 
-test('plot fills use sale status colors and only render a point fallback for point geometries', async () => {
+test('plot fills preserve status colors as the fallback and only render a point fallback for point geometries', async () => {
   const plotLayers = await readFile(plotMapLayersModule, 'utf8')
 
-  assert.match(plotLayers, /buildStatusFillExpr/)
-  assert.match(plotLayers, /'fill-color': buildStatusFillExpr\(\)/)
+  assert.match(plotLayers, /buildPlotFillExpr/)
+  assert.match(plotLayers, /'fill-color': buildPlotFillExpr\(\)/)
   assert.doesNotMatch(plotLayers, /plots-points/)
   assert.match(plotLayers, /id: PLOT_POINT_FALLBACK_LAYER_ID/)
   assert.match(plotLayers, /filter: \['==', \['geometry-type'\], 'Point'\]/)
