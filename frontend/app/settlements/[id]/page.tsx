@@ -47,8 +47,8 @@ export default function SettlementAnalysisPage() {
       const settlement = await api.settlements.get(id, { include_plots: false })
 
       const safeAdd = () => {
-        addRoadLayers(map, true)
         addLayers(map, settlement.geometry, id)
+        addRoadLayers(map, true, 'plots-border')
       }
 
       if (!map.isStyleLoaded()) {

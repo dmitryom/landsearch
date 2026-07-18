@@ -114,8 +114,8 @@ export default function PlotDetailPage() {
     mapRef.current = map
 
     map.on('load', () => {
-      addRoadLayers(map, true)
       addDetailPlotLayer(map, plot, true)
+      addRoadLayers(map, true, 'detail-plot-border')
     })
 
     return () => {
@@ -148,8 +148,8 @@ export default function PlotDetailPage() {
     const reinit = () => {
       if (styleReady) return
       styleReady = true
-      addRoadLayers(map, true)
       addDetailPlotLayer(map, plot)
+      addRoadLayers(map, true, 'detail-plot-border')
       map.once('idle', () => window.setTimeout(finish, 4000))
       window.setTimeout(finish, 6000)
     }

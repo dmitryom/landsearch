@@ -133,7 +133,7 @@ export function setRoadLayerVisibility(map: maplibregl.Map, visible: boolean): v
   })
 }
 
-export function addRoadLayers(map: maplibregl.Map, visible = true): void {
+export function addRoadLayers(map: maplibregl.Map, visible = true, beforeLayerId?: string): void {
   if (!map.getSource(ROAD_SOURCE_ID)) {
     map.addSource(ROAD_SOURCE_ID, {
       type: 'vector',
@@ -144,9 +144,16 @@ export function addRoadLayers(map: maplibregl.Map, visible = true): void {
     })
   }
 
-  const beforeId = findLabelLayerId(map)
+  const beforeId = beforeLayerId && map.getLayer(beforeLayerId)
+    ? beforeLayerId
+    : findLabelLayerId(map)
   roadLayers.forEach((layer) => {
     if (!map.getLayer(layer.id)) map.addLayer(layer, beforeId)
   })
+  if (beforeId) {
+    ROAD_LAYER_IDS.forEach((layerId) => {
+      if (map.getLayer(layerId)) map.moveLayer(layerId, beforeId)
+    })
+  }
   setRoadLayerVisibility(map, visible)
 }

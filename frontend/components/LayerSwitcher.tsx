@@ -100,8 +100,8 @@ export default function LayerSwitcher({
     const reinit = () => {
       if (styleReady) return
       styleReady = true
-      addRoadLayers(map, showRoads)
       addPlotTileLayers(map, tileUrlRef.current)
+      addRoadLayers(map, showRoads, 'plots-border')
       setTatarstanCadastreLayer(map, showTatarstanCadastre, nspdLayerVisibility, nspdOpacity)
       log('map', 'Layer switched', id)
       map.once('idle', () => window.setTimeout(finish, 4000))

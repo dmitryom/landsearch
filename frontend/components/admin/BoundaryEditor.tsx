@@ -134,7 +134,6 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     const onLoad = () => {
-      addRoadLayers(map, true)
       if (!map.getSource(SOURCE_ID)) {
         map.addSource(SOURCE_ID, { type: 'geojson', data: featureCollection(initialGeometryRef.current || null) as any })
         map.addLayer({
@@ -154,6 +153,7 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
         id: 'admin-plots-border', type: 'line', source: 'admin-plots', 'source-layer': 'plots', minzoom: 13,
         paint: { 'line-color': '#ffffff', 'line-width': 1.2, 'line-opacity': 0.9 },
       })
+      addRoadLayers(map, true, 'admin-plots-border')
       if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 16, duration: 0 })
       setMapReady(true)
     }

@@ -228,8 +228,8 @@ export default function MapView({
 
   const initMapLayers = useCallback((map: maplibregl.Map) => {
     log('map', 'Добавление MVT tile слоёв')
-    addRoadLayers(map, showRoadsRef.current)
     addPlotTileLayers(map, tileUrlRef.current)
+    addRoadLayers(map, showRoadsRef.current, 'plots-border')
     setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
     renderBoundary(map, boundaryGeometryRef.current)
     for (const layerId of ['plots-fill', 'plots-point-fallback']) {
@@ -283,8 +283,8 @@ export default function MapView({
       let selectedRestoreTimer: ReturnType<typeof setTimeout> | null = null
       const restoreSelectedPlot = () => {
         if (!mounted) return
-        addRoadLayers(map, showRoadsRef.current)
         addPlotTileLayers(map, tileUrlRef.current)
+        addRoadLayers(map, showRoadsRef.current, 'plots-border')
         setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
         renderBoundary(map, boundaryGeometryRef.current)
         renderSelectedPlot(map, selectedPlotRef.current)

@@ -186,6 +186,8 @@ test('road map layers use the approved neutral asphalt palette and OpenMapTiles 
   assert.match(roads, /minzoom: 13/)
   assert.match(roads, /map\.getSource\(ROAD_SOURCE_ID\)/)
   assert.match(roads, /map\.getLayer\(layer\.id\)/)
+  assert.match(roads, /beforeLayerId\?: string/)
+  assert.match(roads, /map\.moveLayer\(layerId, beforeId\)/)
   assert.doesNotMatch(roads, /if \(!map\.isStyleLoaded\(\)\) return/)
   assert.match(roads, /© OpenStreetMap contributors/)
 })
@@ -205,7 +207,7 @@ test('public maps expose and persist the OSM road layer across style switches', 
 
   assert.match(mapView, /showRoads = true/)
   assert.match(mapView, /showRoadsRef\.current = showRoads/)
-  assert.match(mapView, /addRoadLayers\(map, showRoadsRef\.current\)[\s\S]{0,160}addPlotTileLayers/)
+  assert.match(mapView, /addPlotTileLayers\(map, tileUrlRef\.current\)[\s\S]{0,160}addRoadLayers\(map, showRoadsRef\.current, 'plots-border'\)/)
   assert.match(mapView, /setRoadLayerVisibility\(map, showRoads\)/)
 
   assert.match(layerSwitcher, /id="osm-roads"/)
@@ -213,7 +215,7 @@ test('public maps expose and persist the OSM road layer across style switches', 
   assert.match(layerSwitcher, /Нейтральный асфальт/)
   assert.match(layerSwitcher, /OpenStreetMap/)
   assert.match(layerSwitcher, /-right-9[\s\S]{0,120}sm:right-0/)
-  assert.match(layerSwitcher, /addRoadLayers\(map, showRoads\)[\s\S]{0,160}addPlotTileLayers/)
+  assert.match(layerSwitcher, /addPlotTileLayers\(map, tileUrlRef\.current\)[\s\S]{0,160}addRoadLayers\(map, showRoads, 'plots-border'\)/)
   assert.match(layerSwitcher, /setRoadLayerVisibility/)
 
   assert.match(persistence, /safeGet\(key\)/)
@@ -230,10 +232,10 @@ test('plot, settlement and boundary editor maps use the same road overlay', asyn
     assert.match(source, /import \{ addRoadLayers \} from '@\/lib\/road-map-layers'/)
   }
 
-  assert.match(plotDetail, /map\.on\('load', \(\) => \{[\s\S]{0,120}addRoadLayers\(map, true\)[\s\S]{0,120}addDetailPlotLayer/)
-  assert.match(plotDetail, /const reinit = \(\) => \{[\s\S]{0,180}addRoadLayers\(map, true\)[\s\S]{0,120}addDetailPlotLayer/)
-  assert.match(settlement, /const safeAdd = \(\) => \{[\s\S]{0,120}addRoadLayers\(map, true\)[\s\S]{0,120}addLayers/)
-  assert.match(boundaryEditor, /const onLoad = \(\) => \{[\s\S]{0,120}addRoadLayers\(map, true\)/)
+  assert.match(plotDetail, /map\.on\('load', \(\) => \{[\s\S]{0,120}addDetailPlotLayer[\s\S]{0,120}addRoadLayers\(map, true, 'detail-plot-border'\)/)
+  assert.match(plotDetail, /const reinit = \(\) => \{[\s\S]{0,180}addDetailPlotLayer[\s\S]{0,120}addRoadLayers\(map, true, 'detail-plot-border'\)/)
+  assert.match(settlement, /const safeAdd = \(\) => \{[\s\S]{0,120}addLayers[\s\S]{0,120}addRoadLayers\(map, true, 'plots-border'\)/)
+  assert.match(boundaryEditor, /addRoadLayers\(map, true, 'admin-plots-border'\)/)
 })
 
 test('result tray supports hidden, compact, expanded and resizable states', async () => {
