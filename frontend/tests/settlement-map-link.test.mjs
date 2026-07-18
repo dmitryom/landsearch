@@ -111,8 +111,8 @@ test('home land search filters are applied to map vector tile requests', async (
   const plotLayers = await readFile(plotMapLayersModule, 'utf8')
   const mapTiles = await readFile(mapTilesModule, 'utf8')
 
-  assert.match(home, /<MapView[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
-  assert.match(home, /<LayerSwitcher[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
+  assert.match(home, /<MapView[^>]*filters=\{publicCatalogFilters\}/)
+  assert.match(home, /<LayerSwitcher[^>]*filters=\{publicCatalogFilters\}/)
   assert.match(mapView, /buildPlotTileUrl\(filters\)/)
   assert.match(layerSwitcher, /buildPlotTileUrl\(filters\)/)
   assert.match(mapView, /updatePlotTileUrl\(map, tileUrl\)/)
@@ -130,8 +130,8 @@ test('empty public map scopes colored inventory to all settlements without narro
   assert.match(publicCatalogFilters, /return \{ \.\.\.filters, settlements_only: 'true' \}/)
   assert.match(home, /const publicCatalogFilters = useMemo\(\(\) => getPublicCatalogFilters\(filters\), \[filters\]\)/)
   assert.match(home, /loadData\(publicCatalogFilters\)/)
-  assert.match(home, /<MapView[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
-  assert.match(home, /<LayerSwitcher[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
+  assert.match(home, /<MapView[^>]*filters=\{publicCatalogFilters\}/)
+  assert.match(home, /<LayerSwitcher[^>]*filters=\{publicCatalogFilters\}/)
   assert.match(mapTiles, /'settlements_only'/)
 
   const urlFilterStart = home.indexOf('const URL_FILTER_KEYS')
