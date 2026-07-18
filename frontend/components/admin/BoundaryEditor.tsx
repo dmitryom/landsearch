@@ -18,6 +18,12 @@ type DrawingMode = 'polygon' | 'radius' | 'poi' | null
 type BoundaryGeometry = Record<string, unknown>
 type EditorTab = 'boundary' | 'poi'
 
+type PoiOperation = {
+  generation: number
+  settlementId: string
+}
+
+type PoiMarkerData = Pick<SettlementPoi, 'poi_type' | 'name' | 'is_published'>
 type PoiMarkerRef = {
   marker: maplibregl.Marker
   root: Root
@@ -105,7 +111,7 @@ function poiDraftFrom(poi: SettlementPoi): SettlementPoiDraft {
   }
 }
 
-function createPoiMarkerElement(poi: SettlementPoi, selected: boolean): { element: HTMLButtonElement; root: Root } {
+function createPoiMarkerElement(poi: PoiMarkerData, selected: boolean): { element: HTMLButtonElement; root: Root } {
   const element = document.createElement('button')
   element.type = 'button'
   element.className = 'flex h-8 w-8 items-center justify-center rounded-full border-2 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2'
@@ -128,6 +134,7 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
   const poiPlacementTypeRef = useRef<PoiType>('other')
   const settlementIdRef = useRef(settlement.id)
   const pointsRef = useRef<Point[]>([])
+  const operationGenerationRef = useRef(0)
   const centerRef = useRef<Point | null>(null)
   const radiusRef = useRef(settlement.boundary_radius_m ?? 500)
   const initialGeometryRef = useRef(settlement.geometry)
@@ -177,6 +184,53 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
     const geometry = polygonFromPoints(nextPoints)
     if (geometry) setDraftGeometry(geometry)
   }, [])
+  const beginPoiOperation = useCallback((): PoiOperation => {
+    operationGenerationRef.current += 1
+    const operation = {
+      generation: operationGenerationRef.current,
+      settlementId: settlementIdRef.current,
+    }
+    setBusy(true)
+    return operation
+  }, [])
+
+  const isCurrentPoiOperation = useCallback((operation: PoiOperation): boolean => (
+    operationGenerationRef.current === operation.generation
+      && settlementIdRef.current === operation.settlementId
+  ), [])
+
+  const finishPoiOperation = useCallback((operation: PoiOperation) => {
+    if (isCurrentPoiOperation(operation)) setBusy(false)
+  }, [isCurrentPoiOperation])
+
+  useEffect(() => {
+    const nextDraftMode = settlement.boundary_source === 'manual_radius' ? 'radius' : 'polygon'
+    const nextRadius = settlement.boundary_radius_m ?? 500
+
+    operationGenerationRef.current += 1
+    setBusy(false)
+    setMapReady(false)
+    setEditorTab('boundary')
+    setDraftMode(nextDraftMode)
+    setPoints([])
+    pointsRef.current = []
+    setCenter(null)
+    centerRef.current = null
+    setRadiusM(nextRadius)
+    radiusRef.current = nextRadius
+    setDraftGeometry(settlement.geometry || null)
+    setPreview(null)
+    setMode(null)
+    modeRef.current = null
+    setPois([])
+    setPoiDraft(null)
+    setSelectedPoiId(null)
+    setPlacementType('other')
+    poiPlacementTypeRef.current = 'other'
+    setMessage('')
+    setError('')
+  }, [settlement.id])
+
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
@@ -330,25 +384,29 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
   }, [clearPoiMarkers, settlement.id])
 
   const handlePoiCoordinateUpdate = useCallback(async (poi: SettlementPoi, marker: maplibregl.Marker) => {
+    const operation = beginPoiOperation()
     const lngLat = marker.getLngLat()
-    setBusy(true)
     const previousCoordinates: Point = [poi.longitude, poi.latitude]
     setError('')
     try {
       const result = await api.pois.update(poi.id, { longitude: lngLat.lng, latitude: lngLat.lat })
-      if (settlementIdRef.current !== poi.settlement_id) return
+      if (!isCurrentPoiOperation(operation)) return
       setPois((current) => current.map((item) => item.id === result.id ? result : item))
-      setPoiDraft((current) => current?.id === result.id ? poiDraftFrom(result) : current)
+      setPoiDraft((current) => current?.id === result.id ? {
+        ...current,
+        longitude: result.longitude,
+        latitude: result.latitude,
+      } : current)
       setMessage('Координаты объекта сохранены')
     } catch (cause) {
-      if (settlementIdRef.current === poi.settlement_id) {
+      if (isCurrentPoiOperation(operation)) {
         marker.setLngLat(previousCoordinates)
         setError(cause instanceof Error ? cause.message : 'Не удалось сохранить координаты объекта')
       }
     } finally {
-      if (settlementIdRef.current === poi.settlement_id) setBusy(false)
+      finishPoiOperation(operation)
     }
-  }, [])
+  }, [beginPoiOperation, finishPoiOperation, isCurrentPoiOperation])
 
   useEffect(() => {
     const map = mapRef.current
@@ -377,7 +435,34 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
       })
       poiMarkerRefs.current.push({ marker, root, element, onClick })
     }
-  }, [clearPoiMarkers, editorTab, handlePoiCoordinateUpdate, mapReady, pois, selectedPoiId])
+
+    if (poiDraft && !poiDraft.id) {
+      const { element, root } = createPoiMarkerElement({
+        poi_type: poiDraft.poi_type,
+        name: poiDraft.name || 'Новый объект',
+        is_published: poiDraft.is_published,
+      }, true)
+      element.style.outline = '2px dashed #111827'
+      element.setAttribute('aria-label', 'Новый объект')
+      const draftMarker = new maplibregl.Marker({ element, anchor: 'bottom', draggable: true })
+        .setLngLat([poiDraft.longitude, poiDraft.latitude])
+        .addTo(map)
+      const onClick = (event: MouseEvent) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      element.addEventListener('click', onClick)
+      draftMarker.on('dragend', () => {
+        const lngLat = draftMarker.getLngLat()
+        setPoiDraft((current) => current && !current.id ? {
+          ...current,
+          longitude: lngLat.lng,
+          latitude: lngLat.lat,
+        } : current)
+      })
+      poiMarkerRefs.current.push({ marker: draftMarker, root, element, onClick })
+    }
+  }, [clearPoiMarkers, editorTab, handlePoiCoordinateUpdate, mapReady, poiDraft, pois, selectedPoiId])
 
   const startPolygon = (newContour: boolean) => {
     if (!newContour && settlement.geometry?.type !== 'Polygon') {
@@ -533,7 +618,8 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
       return
     }
 
-    setBusy(true)
+    const operation = beginPoiOperation()
+    const editingExisting = Boolean(poiDraft.id)
     setError('')
     try {
       const data = {
@@ -547,20 +633,20 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
       }
       const result = poiDraft.id
         ? await api.pois.update(poiDraft.id, data)
-        : await api.pois.create({ settlement_id: settlement.id, ...data })
-      if (settlementIdRef.current !== settlement.id) return
-      setPois((current) => poiDraft.id
+        : await api.pois.create({ settlement_id: operation.settlementId, ...data })
+      if (!isCurrentPoiOperation(operation)) return
+      setPois((current) => editingExisting
         ? current.map((item) => item.id === result.id ? result : item)
         : [...current, result])
       setSelectedPoiId(result.id)
       setPoiDraft(poiDraftFrom(result))
       setMode(null)
       modeRef.current = null
-      setMessage(poiDraft.id ? 'Объект сохранен' : 'Объект добавлен')
+      setMessage(editingExisting ? 'Объект сохранен' : 'Объект добавлен')
     } catch (cause) {
-      if (settlementIdRef.current === settlement.id) setError(cause instanceof Error ? cause.message : 'Не удалось сохранить объект')
+      if (isCurrentPoiOperation(operation)) setError(cause instanceof Error ? cause.message : 'Не удалось сохранить объект')
     } finally {
-      if (settlementIdRef.current === settlement.id) setBusy(false)
+      finishPoiOperation(operation)
     }
   }
 
@@ -568,19 +654,19 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
     const selectedPoi = pois.find((poi) => poi.id === selectedPoiId)
     if (!selectedPoi || !window.confirm(`Удалить объект "${selectedPoi.name}"?`)) return
 
-    setBusy(true)
+    const operation = beginPoiOperation()
     setError('')
     try {
       await api.pois.delete(selectedPoi.id)
-      if (settlementIdRef.current !== settlement.id) return
+      if (!isCurrentPoiOperation(operation)) return
       setPois((current) => current.filter((poi) => poi.id !== selectedPoi.id))
       setSelectedPoiId(null)
       setPoiDraft(null)
       setMessage('Объект удален')
     } catch (cause) {
-      if (settlementIdRef.current === settlement.id) setError(cause instanceof Error ? cause.message : 'Не удалось удалить объект')
+      if (isCurrentPoiOperation(operation)) setError(cause instanceof Error ? cause.message : 'Не удалось удалить объект')
     } finally {
-      if (settlementIdRef.current === settlement.id) setBusy(false)
+      finishPoiOperation(operation)
     }
   }
 
