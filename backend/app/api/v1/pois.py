@@ -1,4 +1,5 @@
 import json
+import logging
 from uuid import UUID
 
 import redis.asyncio as aioredis
@@ -11,33 +12,61 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.config import settings
 from ...core.database import get_session
-from ...models import Settlement, SettlementPoi, User, UserRole
+from ...models import Settlement, SettlementPoi, Tenant, User, UserRole
 from ...schemas import PoiType, SettlementPoiCreate, SettlementPoiResponse, SettlementPoiUpdate
-from ..deps import get_tenant_scope_optional, require_role
+from ..deps import require_role
 
 
 router = APIRouter(prefix="/pois", tags=["pois"])
+logger = logging.getLogger(__name__)
+
+
+async def get_public_poi_tenant_scope(
+    session: AsyncSession = Depends(get_session),
+) -> UUID | None:
+    if not settings.public_tenant_slug:
+        return None
+    result = await session.execute(
+        select(Tenant.id).where(
+            Tenant.slug == settings.public_tenant_slug,
+            Tenant.is_active,
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 async def _get_redis():
+    cache = None
     try:
         cache = aioredis.from_url(settings.redis_url, decode_responses=True)
         await cache.ping()
         return cache
     except Exception:
+        if cache is not None:
+            await _close_redis(cache)
         return None
+
+
+async def _close_redis(cache) -> None:
+    try:
+        await cache.aclose()
+    except Exception:
+        return
 
 
 async def _invalidate_poi_cache(tenant_id: UUID) -> None:
     cache = await _get_redis()
     if cache is None:
+        logger.warning("Failed to invalidate POI cache for tenant %s: Redis unavailable", tenant_id)
         return
     try:
         keys = [key async for key in cache.scan_iter(match=f"landsearch:pois:{tenant_id}:*", count=500)]
         if keys:
             await cache.delete(*keys)
     except Exception:
-        return
+        logger.warning("Failed to invalidate POI cache for tenant %s", tenant_id, exc_info=True)
+    finally:
+        await _close_redis(cache)
 
 
 def _parse_uuid(value: str, field: str) -> UUID:
@@ -139,65 +168,69 @@ async def list_public_pois(
     bbox: str = Query(...),
     types: str | None = None,
     session: AsyncSession = Depends(get_session),
-    tenant_id: UUID | None = Depends(get_tenant_scope_optional),
+    tenant_id: UUID | None = Depends(get_public_poi_tenant_scope),
 ):
     parsed_bbox = _parse_bbox(bbox)
     parsed_types = _parse_types(types)
     cache_key = _cache_key(tenant_id, parsed_bbox, parsed_types)
     cache = await _get_redis()
-    if cache is not None:
-        try:
-            cached = await cache.get(cache_key)
-            if cached:
-                return json.loads(cached)
-        except Exception:
-            pass
+    try:
+        if cache is not None:
+            try:
+                cached = await cache.get(cache_key)
+                if cached:
+                    return json.loads(cached)
+            except Exception:
+                pass
 
-    if tenant_id is None:
-        return {"type": "FeatureCollection", "features": []}
+        if tenant_id is None:
+            return {"type": "FeatureCollection", "features": []}
 
-    min_lng, min_lat, max_lng, max_lat = parsed_bbox
-    envelope = func.ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326)
-    stmt = (
-        select(SettlementPoi, Settlement.name)
-        .join(Settlement, Settlement.id == SettlementPoi.settlement_id)
-        .where(
-            SettlementPoi.tenant_id == tenant_id,
-            Settlement.tenant_id == tenant_id,
-            SettlementPoi.is_published.is_(True),
-            SettlementPoi.geometry.op("&&")(envelope),
+        min_lng, min_lat, max_lng, max_lat = parsed_bbox
+        envelope = func.ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326)
+        stmt = (
+            select(SettlementPoi, Settlement.name)
+            .join(Settlement, Settlement.id == SettlementPoi.settlement_id)
+            .where(
+                SettlementPoi.tenant_id == tenant_id,
+                Settlement.tenant_id == tenant_id,
+                SettlementPoi.is_published.is_(True),
+                SettlementPoi.geometry.op("&&")(envelope),
+            )
+            .order_by(SettlementPoi.created_at.desc())
+            .limit(2000)
         )
-        .order_by(SettlementPoi.created_at.desc())
-        .limit(2000)
-    )
-    if parsed_types:
-        stmt = stmt.where(SettlementPoi.poi_type.in_(parsed_types))
-    rows = (await session.execute(stmt)).all()
-    features = []
-    for poi, settlement_name in rows:
-        longitude, latitude = _poi_coordinates(poi)
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [longitude, latitude]},
-                "properties": {
-                    "id": str(poi.id),
-                    "settlement_id": str(poi.settlement_id),
-                    "settlement_name": settlement_name,
-                    "poi_type": poi.poi_type,
-                    "custom_type_label": poi.custom_type_label,
-                    "name": poi.name,
-                    "description": poi.description,
-                },
-            }
-        )
-    response = {"type": "FeatureCollection", "features": features}
-    if cache is not None:
-        try:
-            await cache.setex(cache_key, 300, json.dumps(response))
-        except Exception:
-            pass
-    return response
+        if parsed_types:
+            stmt = stmt.where(SettlementPoi.poi_type.in_(parsed_types))
+        rows = (await session.execute(stmt)).all()
+        features = []
+        for poi, settlement_name in rows:
+            longitude, latitude = _poi_coordinates(poi)
+            features.append(
+                {
+                    "type": "Feature",
+                    "geometry": {"type": "Point", "coordinates": [longitude, latitude]},
+                    "properties": {
+                        "id": str(poi.id),
+                        "settlement_id": str(poi.settlement_id),
+                        "settlement_name": settlement_name,
+                        "poi_type": poi.poi_type,
+                        "custom_type_label": poi.custom_type_label,
+                        "name": poi.name,
+                        "description": poi.description,
+                    },
+                }
+            )
+        response = {"type": "FeatureCollection", "features": features}
+        if cache is not None:
+            try:
+                await cache.setex(cache_key, 300, json.dumps(response))
+            except Exception:
+                pass
+        return response
+    finally:
+        if cache is not None:
+            await _close_redis(cache)
 
 
 @router.get("/admin", response_model=list[SettlementPoiResponse])

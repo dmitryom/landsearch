@@ -37,6 +37,21 @@ def upgrade() -> None:
         sa.Column("is_published", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.CheckConstraint(
+            "poi_type IN ('shop', 'playground', 'sports', 'checkpoint', 'entrance', "
+            "'exit', 'parking', 'school', 'kindergarten', 'cafe', 'medical', "
+            "'sales_office', 'other')",
+            name="ck_settlement_pois_poi_type",
+        ),
+        sa.CheckConstraint(
+            "btrim(name) <> ''",
+            name="ck_settlement_pois_name_not_blank",
+        ),
+        sa.CheckConstraint(
+            "poi_type <> 'other' OR "
+            "(custom_type_label IS NOT NULL AND btrim(custom_type_label) <> '')",
+            name="ck_settlement_pois_other_label",
+        ),
     )
     op.create_index("idx_settlement_pois_geometry", "settlement_pois", ["geometry"], postgresql_using="gist")
     op.create_index("idx_settlement_pois_tenant_published", "settlement_pois", ["tenant_id", "is_published"])

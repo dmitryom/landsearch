@@ -311,6 +311,20 @@ class SettlementPoiCreate(_SettlementPoiFields):
 class SettlementPoiUpdate(_SettlementPoiFields):
     model_config = ConfigDict(extra="forbid")
 
+    @field_validator(
+        "poi_type",
+        "name",
+        "longitude",
+        "latitude",
+        "is_published",
+        mode="before",
+    )
+    @classmethod
+    def reject_null_for_non_nullable_fields(cls, value):
+        if value is None:
+            raise ValueError("Field cannot be null")
+        return value
+
     @model_validator(mode="after")
     def validate_custom_type(self):
         if self.poi_type == PoiType.other and not self.custom_type_label:

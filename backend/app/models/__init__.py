@@ -1,6 +1,7 @@
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Enum,
@@ -169,6 +170,21 @@ class SettlementPoi(Base):
         Index("idx_settlement_pois_geometry", "geometry", postgresql_using="gist"),
         Index("idx_settlement_pois_tenant_published", "tenant_id", "is_published"),
         Index("idx_settlement_pois_settlement_id", "settlement_id"),
+        CheckConstraint(
+            "poi_type IN ('shop', 'playground', 'sports', 'checkpoint', 'entrance', "
+            "'exit', 'parking', 'school', 'kindergarten', 'cafe', 'medical', "
+            "'sales_office', 'other')",
+            name="ck_settlement_pois_poi_type",
+        ),
+        CheckConstraint(
+            "btrim(name) <> ''",
+            name="ck_settlement_pois_name_not_blank",
+        ),
+        CheckConstraint(
+            "poi_type <> 'other' OR "
+            "(custom_type_label IS NOT NULL AND btrim(custom_type_label) <> '')",
+            name="ck_settlement_pois_other_label",
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
