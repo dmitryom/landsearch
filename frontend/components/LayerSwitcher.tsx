@@ -14,6 +14,7 @@ import {
   type NspdLayerKey,
   type NspdLayerVisibility,
 } from '@/lib/plot-map-layers'
+import { addRoadLayers, setRoadLayerVisibility } from '@/lib/road-map-layers'
 
 const BASE_ICONS = {
   landscanner: Satellite,
@@ -39,6 +40,8 @@ export default function LayerSwitcher({
   currentLayer,
   onChange,
   filters = {},
+  showRoads = true,
+  onRoadsChange,
   showTatarstanCadastre = false,
   onTatarstanCadastreChange,
   nspdLayerVisibility = DEFAULT_NSPD_LAYER_VISIBILITY,
@@ -50,6 +53,8 @@ export default function LayerSwitcher({
   currentLayer: string
   onChange: (id: string) => void
   filters?: Record<string, string>
+  showRoads?: boolean
+  onRoadsChange?: (enabled: boolean) => void
   showTatarstanCadastre?: boolean
   onTatarstanCadastreChange: (enabled: boolean) => void
   nspdLayerVisibility?: NspdLayerVisibility
@@ -95,6 +100,7 @@ export default function LayerSwitcher({
     const reinit = () => {
       if (styleReady) return
       styleReady = true
+      addRoadLayers(map, showRoads)
       addPlotTileLayers(map, tileUrlRef.current)
       setTatarstanCadastreLayer(map, showTatarstanCadastre, nspdLayerVisibility, nspdOpacity)
       log('map', 'Layer switched', id)
@@ -110,6 +116,11 @@ export default function LayerSwitcher({
     const next = { ...nspdLayerVisibility, [key]: !nspdLayerVisibility[key] }
     onNspdLayerVisibilityChange?.(next)
     if (map?.isStyleLoaded()) setTatarstanCadastreLayer(map, showTatarstanCadastre, next, nspdOpacity)
+  }
+
+  const toggleRoads = (enabled: boolean) => {
+    onRoadsChange?.(enabled)
+    if (map?.isStyleLoaded()) setRoadLayerVisibility(map, enabled)
   }
 
   const toggleMaster = (enabled: boolean) => {
@@ -170,6 +181,21 @@ export default function LayerSwitcher({
             </div>
           ) : (
             <div className="max-h-[60vh] overflow-y-auto p-3">
+              <div className="flex items-start gap-2 border-b border-[var(--ls-line)] pb-3">
+                <input
+                  id="osm-roads"
+                  type="checkbox"
+                  checked={showRoads}
+                  aria-label="Показать дороги OpenStreetMap"
+                  onChange={(event) => toggleRoads(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[var(--ls-green)] focus:ring-[var(--ls-green)]"
+                />
+                <Route className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ls-green)]" aria-hidden="true" />
+                <label htmlFor="osm-roads" className="min-w-0 text-xs font-semibold text-[var(--ls-ink)]">
+                  Дороги
+                  <span className="mt-0.5 block text-[10px] font-normal text-[var(--ls-muted)]">Нейтральный асфальт · OpenStreetMap</span>
+                </label>
+              </div>
               <div className="flex items-start gap-2 border-b border-[var(--ls-line)] pb-3">
                 <input
                   id="tatarstan-cadastre"

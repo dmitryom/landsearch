@@ -8,6 +8,7 @@ import { BASE_LAYERS, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { log } from '@/lib/logger'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
 import { addPlotTileLayers, DEFAULT_NSPD_LAYER_VISIBILITY, setTatarstanCadastreLayer, updatePlotTileUrl, type NspdLayerVisibility } from '@/lib/plot-map-layers'
+import { addRoadLayers, setRoadLayerVisibility } from '@/lib/road-map-layers'
 import MapOrientationControls from '@/components/MapOrientationControls'
 
 const SELECTED_PLOT_SOURCE_ID = 'selected-plot'
@@ -90,6 +91,7 @@ export default function MapView({
   resultBounds = null,
   boundaryGeometry = null,
   selectedPlot = null,
+  showRoads = true,
   showTatarstanCadastre = false,
   nspdLayerVisibility = DEFAULT_NSPD_LAYER_VISIBILITY,
   nspdOpacity = 1,
@@ -102,6 +104,7 @@ export default function MapView({
   resultBounds?: maplibregl.LngLatBoundsLike | null
   boundaryGeometry?: Record<string, unknown> | null
   selectedPlot?: SelectedPlot | null
+  showRoads?: boolean
   showTatarstanCadastre?: boolean
   nspdLayerVisibility?: NspdLayerVisibility
   nspdOpacity?: number
@@ -115,6 +118,7 @@ export default function MapView({
   const selectedPlotRef = useRef<SelectedPlot | null>(selectedPlot)
   const boundaryGeometryRef = useRef<Record<string, unknown> | null>(boundaryGeometry)
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null)
+  const showRoadsRef = useRef(showRoads)
   const showTatarstanCadastreRef = useRef(showTatarstanCadastre)
   const nspdLayerVisibilityRef = useRef(nspdLayerVisibility)
   const nspdOpacityRef = useRef(nspdOpacity)
@@ -126,6 +130,7 @@ export default function MapView({
   useEffect(() => { onPlotClickRef.current = onPlotClick }, [onPlotClick])
   useEffect(() => { selectedPlotRef.current = selectedPlot }, [selectedPlot])
   useEffect(() => { boundaryGeometryRef.current = boundaryGeometry }, [boundaryGeometry])
+  useEffect(() => { showRoadsRef.current = showRoads }, [showRoads])
   useEffect(() => { showTatarstanCadastreRef.current = showTatarstanCadastre }, [showTatarstanCadastre])
   useEffect(() => { nspdLayerVisibilityRef.current = nspdLayerVisibility }, [nspdLayerVisibility])
   useEffect(() => { nspdOpacityRef.current = nspdOpacity }, [nspdOpacity])
@@ -223,6 +228,7 @@ export default function MapView({
 
   const initMapLayers = useCallback((map: maplibregl.Map) => {
     log('map', 'Добавление MVT tile слоёв')
+    addRoadLayers(map, showRoadsRef.current)
     addPlotTileLayers(map, tileUrlRef.current)
     setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
     renderBoundary(map, boundaryGeometryRef.current)
@@ -277,6 +283,7 @@ export default function MapView({
       let selectedRestoreTimer: ReturnType<typeof setTimeout> | null = null
       const restoreSelectedPlot = () => {
         if (!mounted) return
+        addRoadLayers(map, showRoadsRef.current)
         addPlotTileLayers(map, tileUrlRef.current)
         setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
         renderBoundary(map, boundaryGeometryRef.current)
@@ -334,6 +341,12 @@ export default function MapView({
     if (!map || !mapLoaded) return
     setTatarstanCadastreLayer(map, showTatarstanCadastre, nspdLayerVisibility, nspdOpacity)
   }, [mapLoaded, nspdLayerVisibility, nspdOpacity, showTatarstanCadastre])
+
+  useEffect(() => {
+    const map = internalMapRef.current
+    if (!map || !mapLoaded) return
+    setRoadLayerVisibility(map, showRoads)
+  }, [mapLoaded, showRoads])
 
   useEffect(() => {
     const map = internalMapRef.current

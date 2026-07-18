@@ -9,6 +9,7 @@ import test from 'node:test'
 
 const settlementPage = new URL('../app/settlements/[id]/page.tsx', import.meta.url)
 const homePage = new URL('../app/page.tsx', import.meta.url)
+const standaloneMapPage = new URL('../app/map/page.tsx', import.meta.url)
 const plotDetailPage = new URL('../app/plots/[id]/page.tsx', import.meta.url)
 const loginPage = new URL('../app/auth/login/page.tsx', import.meta.url)
 const adminLayout = new URL('../app/admin/layout.tsx', import.meta.url)
@@ -32,6 +33,7 @@ const logPanelComponent = new URL('../components/ui/LogPanel.tsx', import.meta.u
 const searchBarComponent = new URL('../components/ui/SearchBar.tsx', import.meta.url)
 const plotMapLayersModule = new URL('../lib/plot-map-layers.ts', import.meta.url)
 const roadMapLayersModule = new URL('../lib/road-map-layers.ts', import.meta.url)
+const persistentBooleanModule = new URL('../lib/use-persistent-boolean.ts', import.meta.url)
 const apiClient = new URL('../lib/api.ts', import.meta.url)
 const constantsModule = new URL('../lib/constants.ts', import.meta.url)
 const backendPlotsApi = new URL('../../backend/app/api/v1/plots.py', import.meta.url)
@@ -184,6 +186,36 @@ test('road map layers use the approved neutral asphalt palette and OpenMapTiles 
   assert.match(roads, /map\.getSource\(ROAD_SOURCE_ID\)/)
   assert.match(roads, /map\.getLayer\(layer\.id\)/)
   assert.match(roads, /© OpenStreetMap contributors/)
+})
+
+test('public maps expose and persist the OSM road layer across style switches', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const standaloneMap = await readFile(standaloneMapPage, 'utf8')
+  const mapView = await readFile(mapViewComponent, 'utf8')
+  const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
+  const persistence = await readFile(persistentBooleanModule, 'utf8')
+
+  for (const page of [home, standaloneMap]) {
+    assert.match(page, /usePersistentBoolean\('landsearch:roads-visible', true\)/)
+    assert.match(page, /showRoads=\{showRoads\}/)
+    assert.match(page, /onRoadsChange=\{setShowRoads\}/)
+  }
+
+  assert.match(mapView, /showRoads = true/)
+  assert.match(mapView, /showRoadsRef\.current = showRoads/)
+  assert.match(mapView, /addRoadLayers\(map, showRoadsRef\.current\)[\s\S]{0,160}addPlotTileLayers/)
+  assert.match(mapView, /setRoadLayerVisibility\(map, showRoads\)/)
+
+  assert.match(layerSwitcher, /id="osm-roads"/)
+  assert.match(layerSwitcher, /Дороги/)
+  assert.match(layerSwitcher, /Нейтральный асфальт/)
+  assert.match(layerSwitcher, /OpenStreetMap/)
+  assert.match(layerSwitcher, /addRoadLayers\(map, showRoads\)[\s\S]{0,160}addPlotTileLayers/)
+  assert.match(layerSwitcher, /setRoadLayerVisibility/)
+
+  assert.match(persistence, /safeGet\(key\)/)
+  assert.match(persistence, /stored === 'true' \|\| stored === 'false'/)
+  assert.match(persistence, /if \(hydrated\) safeSet\(key, String\(value\)\)/)
 })
 
 test('result tray supports hidden, compact, expanded and resizable states', async () => {

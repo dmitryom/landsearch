@@ -20,6 +20,7 @@ import { log } from '@/lib/logger'
 import { getGeometryBounds, getPlotBounds, type PlotBounds } from '@/lib/plot-bounds'
 import ResizeHandle from '@/components/ui/ResizeHandle'
 import { usePersistentLayout } from '@/lib/use-persistent-layout'
+import { usePersistentBoolean } from '@/lib/use-persistent-boolean'
 import { DEFAULT_NSPD_LAYER_VISIBILITY, type NspdLayerVisibility } from '@/lib/plot-map-layers'
 
 const URL_FILTER_KEYS = [
@@ -52,6 +53,7 @@ export default function HomePage() {
   const [filtersReady, setFiltersReady] = useState(false)
   const [showFilters, setShowFilters] = useState(true)
   const [baseLayer, setBaseLayer] = useState(DEFAULT_BASE_LAYER_ID)
+  const [showRoads, setShowRoads] = usePersistentBoolean('landsearch:roads-visible', true)
   const [showTatarstanCadastre, setShowTatarstanCadastre] = useState(false)
   const [nspdLayerVisibility, setNspdLayerVisibility] = useState<NspdLayerVisibility>(DEFAULT_NSPD_LAYER_VISIBILITY)
   const [nspdOpacity, setNspdOpacity] = useState(1)
@@ -355,6 +357,7 @@ export default function HomePage() {
               resultBounds={resultBounds}
               boundaryGeometry={selectedSettlement?.geometry}
               selectedPlot={selectedPlot}
+              showRoads={showRoads}
               showTatarstanCadastre={showTatarstanCadastre}
               nspdLayerVisibility={nspdLayerVisibility}
               nspdOpacity={nspdOpacity}
@@ -399,6 +402,8 @@ export default function HomePage() {
               currentLayer={baseLayer}
               onChange={setBaseLayer}
               filters={filters}
+              showRoads={showRoads}
+              onRoadsChange={setShowRoads}
               showTatarstanCadastre={showTatarstanCadastre}
               onTatarstanCadastreChange={setShowTatarstanCadastre}
               nspdLayerVisibility={nspdLayerVisibility}
