@@ -10,6 +10,7 @@ from typing import Any
 from geoalchemy2.shape import from_shape
 from fastapi.encoders import jsonable_encoder
 from shapely.geometry import mapping
+from shapely.validation import make_valid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -225,17 +226,22 @@ def _extract_feature_data(feat: NspdFeature) -> dict[str, Any] | None:
     return data
 
 
-def _extract_geometry(feat: NspdFeature) -> Any | None:
-    """Extract PostGIS geometry from NspdFeature via shapely."""
+def _extract_feature_shape(feat: NspdFeature) -> Any | None:
+    """Extract a Shapely geometry from an NSPD feature."""
     try:
         geom = getattr(feat, "geometry", None)
         if geom is None:
             return None
-        shp = geom.to_shape()
-        return from_shape(shp, srid=4326)
+        return geom.to_shape()
     except Exception as e:
         logger.debug("Geometry extraction failed: %s", e)
         return None
+
+
+def _extract_geometry(feat: NspdFeature) -> Any | None:
+    """Extract PostGIS geometry from NspdFeature via shapely."""
+    shp = _extract_feature_shape(feat)
+    return from_shape(shp, srid=4326) if shp is not None else None
 
 
 def _extract_geometry_geojson(feat: NspdFeature) -> dict | None:
@@ -425,7 +431,7 @@ async def import_landplots_in_contour(
     settlement_id,
     contour,
 ) -> dict[str, int]:
-    """Import official NSPD land plots intersecting a saved settlement boundary."""
+    """Import only NSPD land plots whose complete geometry is inside the boundary."""
     if not _NSPD_AVAILABLE or Nspd is None:
         raise RuntimeError("pynspd is not available")
 
@@ -442,7 +448,14 @@ async def import_landplots_in_contour(
             raise RuntimeError("NSPD contour import is temporarily unavailable") from exc
 
     features = await asyncio.to_thread(fetch)
-    imported = updated = skipped = 0
+    try:
+        import_boundary = make_valid(contour) if not contour.is_valid else contour
+    except Exception as exc:
+        raise RuntimeError("Saved settlement boundary is invalid") from exc
+    if import_boundary.is_empty:
+        raise RuntimeError("Saved settlement boundary is empty")
+
+    imported = updated = skipped = excluded = 0
     candidates: list[tuple[str, dict, object]] = []
     for feature in features:
         data = _extract_feature_data(feature)
@@ -450,7 +463,19 @@ async def import_landplots_in_contour(
         if not cadastral_number:
             skipped += 1
             continue
-        candidates.append((cadastral_number, data or {}, _extract_geometry(feature)))
+        plot_shape = _extract_feature_shape(feature)
+        if plot_shape is None or plot_shape.is_empty or plot_shape.geom_type not in {"Polygon", "MultiPolygon"}:
+            skipped += 1
+            continue
+        if not plot_shape.is_valid:
+            plot_shape = make_valid(plot_shape)
+        if plot_shape.is_empty or plot_shape.geom_type not in {"Polygon", "MultiPolygon"}:
+            skipped += 1
+            continue
+        if not import_boundary.covers(plot_shape):
+            excluded += 1
+            continue
+        candidates.append((cadastral_number, data or {}, from_shape(plot_shape, srid=4326)))
 
     cadastral_numbers = list({number for number, _, _ in candidates})
     existing_by_number: dict[str, Plot] = {}
@@ -487,4 +512,10 @@ async def import_landplots_in_contour(
             updated += 1
         plot.is_active = True
         _apply_nspd_data(plot, data, geometry)
-    return {"found": len(features), "imported": imported, "updated": updated, "skipped": skipped}
+    return {
+        "found": len(features),
+        "imported": imported,
+        "updated": updated,
+        "skipped": skipped,
+        "excluded": excluded,
+    }

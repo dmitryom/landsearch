@@ -308,7 +308,7 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
       const result = await api.settlements.updateBoundary(settlement.id, data)
       onSaved({ ...settlement, geometry: result.geometry || undefined, boundary_source: result.boundary_source, boundary_radius_m: result.boundary_radius_m, boundary_updated_at: result.boundary_updated_at, stats: settlement.stats ? { ...settlement.stats, total_plots: result.plot_count, free_plots: result.by_status.free || 0, reserved_plots: result.by_status.reserved || 0, booked_plots: result.by_status.booked || 0, sold_plots: result.by_status.sold || 0 } : settlement.stats })
       setMode(null)
-      setMessage(`Граница сохранена: ${result.plot_count} участков внутри. Автоматически привязано NSPD: ${result.linked_plot_count || 0}`)
+      setMessage(`Граница сохранена: ${result.plot_count} участков полностью внутри. Привязано NSPD: ${result.linked_plot_count || 0}, отвязано за границей: ${result.unlinked_plot_count || 0}`)
       setPreview(result)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить границу')
@@ -330,7 +330,7 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
       }
       const refreshed = await api.settlements.get(settlement.id, { include_plots: false })
       onSaved(refreshed)
-      setMessage('NSPD: найдено ' + result.found + ', добавлено ' + result.imported + ', обновлено ' + result.updated + ', пропущено ' + result.skipped)
+      setMessage('NSPD: найдено ' + result.found + ', добавлено ' + result.imported + ', обновлено ' + result.updated + ', не полностью внутри ' + result.excluded + ', отвязано за границей ' + result.unlinked + ', пропущено ' + result.skipped)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось импортировать участки NSPD')
     } finally {
@@ -435,13 +435,13 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
 
         <div className="mt-auto space-y-2 border-t border-[var(--ls-line)] pt-4">
           <button type="button" onClick={handlePreview} disabled={busy || !draftGeometry} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-[var(--ls-green)] px-3 py-2 text-xs font-semibold text-[var(--ls-green-dark)] disabled:opacity-40">
-            <Check className="h-4 w-4" /> Посчитать участки внутри
+            <Check className="h-4 w-4" /> Посчитать полностью внутри
           </button>
           <button type="button" onClick={handleSave} disabled={busy || !draftGeometry} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md bg-[var(--ls-green)] px-3 py-2 text-xs font-semibold text-white hover:bg-[var(--ls-green-dark)] disabled:opacity-40">
             <Save className="h-4 w-4" /> Сохранить границу
           </button>
           <button type="button" onClick={handleNspdImport} disabled={busy || !settlement.geometry} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-[var(--ls-blue)] bg-white px-3 py-2 text-xs font-semibold text-[var(--ls-blue)] hover:bg-blue-50 disabled:opacity-40">
-            Импортировать участки NSPD внутри границы
+            Импортировать участки NSPD полностью внутри
           </button>
           <button type="button" onClick={handleClear} disabled={busy || !settlement.geometry} className="inline-flex min-h-9 w-full items-center justify-center gap-2 rounded-md border border-red-200 px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-40">
             <Eraser className="h-4 w-4" /> Сбросить границу
@@ -451,7 +451,7 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
         {preview && (
           <div className="rounded-md border border-[var(--ls-line)] bg-[var(--ls-paper)] p-3">
             <div className="flex items-baseline justify-between">
-              <span className="text-xs text-[var(--ls-muted)]">Участков в каталоге внутри</span>
+              <span className="text-xs text-[var(--ls-muted)]">Участков полностью внутри</span>
               <strong className="text-xl text-[var(--ls-ink)]">{preview.plot_count}</strong>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-1 text-[11px]">
@@ -465,7 +465,7 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
           </div>
         )}
 
-        <p className="text-[11px] leading-4 text-[var(--ls-muted)]">Текущий режим: {modeLabel(draftMode)}. Для радиуса сначала выберите центр на карте. Счётчик использует импортированные геометрии каталога; NSPD на карте является отдельным визуальным слоем.</p>
+        <p className="text-[11px] leading-4 text-[var(--ls-muted)]">Текущий режим: {modeLabel(draftMode)}. Для радиуса сначала выберите центр на карте. Счётчик и импорт включают только участки, вся геометрия которых находится внутри границы; NSPD на карте является отдельным визуальным слоем.</p>
       </aside>
     </section>
   )

@@ -4,15 +4,60 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from shapely.geometry import box
 
 from app.api.deps import _resolve_user
 from app.api.v1 import auth as auth_api
 from app.api.v1 import plots as plots_api
+from app.api.v1 import settlements as settlements_api
 from app.core import rate_limit
 from app.core.config import Settings
 from app.core.exceptions import BadRequestException, NotFoundException, RateLimitException, UnauthorizedException
 from app.core.security import create_refresh_token
 from app.schemas import LoginRequest, PlotCreate, PlotUpdate
+
+
+def test_settlement_boundary_scopes_require_full_plot_coverage():
+    tenant_id = uuid4()
+    settlement_id = uuid4()
+
+    settlement_scope = str(settlements_api._settlement_plot_scope(settlement_id, tenant_id))
+    plot_scope = str(
+        plots_api._apply_settlement_boundary_scope(
+            plots_api.select(plots_api.Plot), settlement_id, tenant_id
+        )
+    )
+
+    assert "ST_CoveredBy" in settlement_scope
+    assert "ST_CoveredBy" in plot_scope
+    assert "ST_Intersects" not in settlement_scope
+    assert "ST_Intersects" not in plot_scope
+
+
+class _RowcountSession:
+    def __init__(self, rowcount):
+        self.rowcount = rowcount
+        self.statements = []
+
+    async def execute(self, statement):
+        self.statements.append(str(statement))
+        return SimpleNamespace(rowcount=self.rowcount)
+
+
+@pytest.mark.asyncio
+async def test_boundary_sync_unlinks_nspd_plots_not_fully_covered():
+    session = _RowcountSession(rowcount=4)
+
+    unlinked = await settlements_api._unlink_nspd_plots_outside_settlement_boundary(
+        session,
+        uuid4(),
+        uuid4(),
+        box(0, 0, 10, 10),
+    )
+
+    assert unlinked == 4
+    assert "NOT ST_CoveredBy" in session.statements[0]
+    assert "plots.imported_from" in session.statements[0]
 
 
 class _ScalarResult:
@@ -226,7 +271,7 @@ async def test_plot_tiles_filters_vector_layer_by_settlement_id(monkeypatch):
     )
 
     assert "boundary.id = :settlement_id" in session.statement
-    assert "ST_Intersects(p.geometry, boundary.geometry)" in session.statement
+    assert "ST_CoveredBy(p.geometry, boundary.geometry)" in session.statement
     assert session.params["settlement_id"] == settlement_id
 
     await plots_api.plot_tiles(

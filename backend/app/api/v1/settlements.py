@@ -6,7 +6,7 @@ from geoalchemy2 import shape
 from geoalchemy2.elements import WKTElement
 from shapely.geometry import mapping, shape as shapely_shape
 from shapely.validation import make_valid
-from sqlalchemy import and_, func, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.database import get_session
@@ -25,7 +25,7 @@ router = APIRouter(prefix="/settlements", tags=["settlements"])
 
 
 def _settlement_plot_scope(settlement_id, tenant_id):
-    """Return plots that intersect the settlement boundary."""
+    """Return plots whose complete geometry is covered by the settlement boundary."""
     return select(Plot).join(
         Settlement,
         and_(Settlement.id == settlement_id, Settlement.tenant_id == tenant_id),
@@ -34,7 +34,7 @@ def _settlement_plot_scope(settlement_id, tenant_id):
         Plot.is_active,
         Plot.geometry.isnot(None),
         Settlement.geometry.isnot(None),
-        func.ST_Intersects(Plot.geometry, Settlement.geometry),
+        func.ST_CoveredBy(Plot.geometry, Settlement.geometry),
     )
 
 
@@ -80,7 +80,7 @@ async def _boundary_summary(session: AsyncSession, tenant_id, geometry) -> dict:
         Plot.tenant_id == tenant_id,
         Plot.is_active,
         Plot.geometry.isnot(None),
-        func.ST_Intersects(Plot.geometry, boundary),
+        func.ST_CoveredBy(Plot.geometry, boundary),
     ).group_by(Plot.status)
     result = await session.execute(stmt)
     by_status = _empty_boundary_status_counts()
@@ -115,9 +115,35 @@ async def _link_unassigned_nspd_plots_to_settlement(session: AsyncSession, tenan
             Plot.is_active,
             Plot.geometry.isnot(None),
             Plot.settlement_id.is_(None),
-            func.ST_Intersects(Plot.geometry, boundary),
+            func.ST_CoveredBy(Plot.geometry, boundary),
         )
         .values(settlement_id=settlement_id)
+    )
+    return result.rowcount or 0
+
+
+async def _unlink_nspd_plots_outside_settlement_boundary(
+    session: AsyncSession,
+    tenant_id,
+    settlement_id,
+    geometry,
+) -> int:
+    """Remove stale NSPD assignments that are not fully covered by the saved boundary."""
+    if geometry is None:
+        return 0
+    boundary = WKTElement(geometry.wkt, srid=4326)
+    result = await session.execute(
+        update(Plot)
+        .where(
+            Plot.tenant_id == tenant_id,
+            Plot.settlement_id == settlement_id,
+            Plot.imported_from == "nspd",
+            or_(
+                Plot.geometry.is_(None),
+                ~func.ST_CoveredBy(Plot.geometry, boundary),
+            ),
+        )
+        .values(settlement_id=None)
     )
     return result.rowcount or 0
 
@@ -318,6 +344,9 @@ async def update_settlement_boundary(
     settlement.boundary_source = "manual_radius" if body.mode == "radius" else "manual_polygon" if body.mode == "polygon" else None
     settlement.boundary_radius_m = body.radius_m if body.mode == "radius" else None
     settlement.boundary_updated_at = datetime.now(timezone.utc)
+    unlinked_plot_count = await _unlink_nspd_plots_outside_settlement_boundary(
+        session, current_user.tenant_id, settlement.id, geometry
+    )
     linked_plot_count = await _link_unassigned_nspd_plots_to_settlement(
         session, current_user.tenant_id, settlement.id, geometry
     )
@@ -333,6 +362,7 @@ async def update_settlement_boundary(
         "boundary_updated_at": settlement.boundary_updated_at,
         **stats,
         "linked_plot_count": linked_plot_count,
+        "unlinked_plot_count": unlinked_plot_count,
     }
 
 
@@ -354,6 +384,9 @@ async def import_settlement_nspd_plots(
         raise HTTPException(status_code=422, detail="Save a polygon or radius before importing NSPD plots")
     contour = shape.to_shape(settlement.geometry)
     result = await import_landplots_in_contour(session, current_user.tenant_id, settlement.id, contour)
+    result["unlinked"] = await _unlink_nspd_plots_outside_settlement_boundary(
+        session, current_user.tenant_id, settlement.id, contour
+    )
     await session.commit()
     await _invalidate_plot_map_cache(current_user.tenant_id)
     return result

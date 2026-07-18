@@ -77,6 +77,7 @@ export interface SettlementBoundaryPreview {
   plot_count: number
   by_status: Record<Plot['status'], number>
   linked_plot_count?: number
+  unlinked_plot_count?: number
 }
 
 export interface PlotListResponse {
@@ -281,7 +282,7 @@ export const api = {
         body: JSON.stringify(data),
       }),
     importNspdPlots: (id: string) =>
-      request<{ found: number; imported: number; updated: number; skipped: number }>('/settlements/' + id + '/nspd-import', {
+      request<{ found: number; imported: number; updated: number; skipped: number; excluded: number; unlinked: number }>('/settlements/' + id + '/nspd-import', {
         method: 'POST',
       }),
     analyze: (id: string, minArea?: number, maxArea?: number) => {
