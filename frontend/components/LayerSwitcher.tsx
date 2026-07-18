@@ -15,6 +15,7 @@ import {
   type NspdLayerVisibility,
 } from '@/lib/plot-map-layers'
 import { addRoadLayers, setRoadLayerVisibility } from '@/lib/road-map-layers'
+import { setPoiLayerVisibility } from '@/lib/settlement-pois'
 
 const BASE_ICONS = {
   landscanner: Satellite,
@@ -42,6 +43,8 @@ export default function LayerSwitcher({
   filters = {},
   showRoads = true,
   onRoadsChange,
+  showSettlementPois = true,
+  onSettlementPoisChange,
   showTatarstanCadastre = false,
   onTatarstanCadastreChange,
   nspdLayerVisibility = DEFAULT_NSPD_LAYER_VISIBILITY,
@@ -55,6 +58,8 @@ export default function LayerSwitcher({
   filters?: Record<string, string>
   showRoads?: boolean
   onRoadsChange?: (enabled: boolean) => void
+  showSettlementPois?: boolean
+  onSettlementPoisChange?: (enabled: boolean) => void
   showTatarstanCadastre?: boolean
   onTatarstanCadastreChange: (enabled: boolean) => void
   nspdLayerVisibility?: NspdLayerVisibility
@@ -121,6 +126,11 @@ export default function LayerSwitcher({
   const toggleRoads = (enabled: boolean) => {
     onRoadsChange?.(enabled)
     if (map?.isStyleLoaded()) setRoadLayerVisibility(map, enabled)
+  }
+
+  const toggleSettlementPois = (enabled: boolean) => {
+    onSettlementPoisChange?.(enabled)
+    if (map?.isStyleLoaded()) setPoiLayerVisibility(map, enabled)
   }
 
   const toggleMaster = (enabled: boolean) => {
@@ -194,6 +204,21 @@ export default function LayerSwitcher({
                 <label htmlFor="osm-roads" className="min-w-0 text-xs font-semibold text-[var(--ls-ink)]">
                   Дороги
                   <span className="mt-0.5 block text-[10px] font-normal text-[var(--ls-muted)]">Нейтральный асфальт · OpenStreetMap</span>
+                </label>
+              </div>
+              <div className="flex items-start gap-2 border-b border-[var(--ls-line)] pb-3">
+                <input
+                  id="settlement-pois"
+                  type="checkbox"
+                  checked={showSettlementPois}
+                  aria-label="Показать инфраструктуру посёлков"
+                  onChange={(event) => toggleSettlementPois(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[var(--ls-green)] focus:ring-[var(--ls-green)]"
+                />
+                <MapPinned className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ls-green)]" aria-hidden="true" />
+                <label htmlFor="settlement-pois" className="min-w-0 text-xs font-semibold text-[var(--ls-ink)]">
+                  Инфраструктура
+                  <span className="mt-0.5 block text-[10px] font-normal text-[var(--ls-muted)]">Объекты всех посёлков</span>
                 </label>
               </div>
               <div className="flex items-start gap-2 border-b border-[var(--ls-line)] pb-3">

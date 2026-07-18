@@ -54,6 +54,7 @@ export default function HomePage() {
   const [showFilters, setShowFilters] = useState(true)
   const [baseLayer, setBaseLayer] = useState(DEFAULT_BASE_LAYER_ID)
   const [showRoads, setShowRoads] = usePersistentBoolean('landsearch:roads-visible', true)
+  const [showSettlementPois, setShowSettlementPois] = usePersistentBoolean('landsearch:settlement-pois-visible', true)
   const [showTatarstanCadastre, setShowTatarstanCadastre] = useState(false)
   const [nspdLayerVisibility, setNspdLayerVisibility] = useState<NspdLayerVisibility>(DEFAULT_NSPD_LAYER_VISIBILITY)
   const [nspdOpacity, setNspdOpacity] = useState(1)
@@ -358,6 +359,7 @@ export default function HomePage() {
               boundaryGeometry={selectedSettlement?.geometry}
               selectedPlot={selectedPlot}
               showRoads={showRoads}
+              showSettlementPois={showSettlementPois}
               showTatarstanCadastre={showTatarstanCadastre}
               nspdLayerVisibility={nspdLayerVisibility}
               nspdOpacity={nspdOpacity}
@@ -404,6 +406,8 @@ export default function HomePage() {
               filters={filters}
               showRoads={showRoads}
               onRoadsChange={setShowRoads}
+              showSettlementPois={showSettlementPois}
+              onSettlementPoisChange={setShowSettlementPois}
               showTatarstanCadastre={showTatarstanCadastre}
               onTatarstanCadastreChange={setShowTatarstanCadastre}
               nspdLayerVisibility={nspdLayerVisibility}

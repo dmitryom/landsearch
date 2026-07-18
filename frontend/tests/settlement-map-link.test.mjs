@@ -21,6 +21,7 @@ const boundaryEditorComponent = new URL('../components/admin/BoundaryEditor.tsx'
 const dataTableComponent = new URL('../components/ui/DataTable.tsx', import.meta.url)
 const draggableMapPanelComponent = new URL('../components/ui/DraggableMapPanel.tsx', import.meta.url)
 const mapViewComponent = new URL('../components/MapView.tsx', import.meta.url)
+const settlementPoiMap = new URL('../lib/settlement-pois.tsx', import.meta.url)
 const mapOrientationControlsComponent = new URL('../components/MapOrientationControls.tsx', import.meta.url)
 const layerSwitcherComponent = new URL('../components/LayerSwitcher.tsx', import.meta.url)
 const settlementContextComponent = new URL('../components/SettlementContextBar.tsx', import.meta.url)
@@ -115,6 +116,19 @@ test('home land search filters are applied to map vector tile requests', async (
   assert.match(mapView, /updatePlotTileUrl\(map, tileUrl\)/)
   assert.match(plotLayers, /source\.setTiles\(\[tileUrl\]\)/)
   assert.match(mapTiles, /'category'/)
+})
+
+test('public map shows clustered POIs from all settlements', async () => {
+  const mapView = await readFile(mapViewComponent, 'utf8')
+  const poiMap = await readFile(settlementPoiMap, 'utf8')
+
+  assert.match(mapView, /api\.pois\.geo\(\{ bbox/)
+  assert.doesNotMatch(mapView, /api\.pois\.geo\(\{[^}]*settlement_id/)
+  assert.match(poiMap, /cluster: true/)
+  assert.match(poiMap, /settlement_name/)
+  assert.match(poiMap, /createRoot/)
+  assert.doesNotMatch(poiMap, /\.setHTML\(/)
+  assert.doesNotMatch(poiMap, /\.innerHTML\s*=/)
 })
 
 test('home plot boundaries use the LandScanner parcel layer style', async () => {

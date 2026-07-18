@@ -3,12 +3,13 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import type { Plot } from '@/lib/api'
+import { api, type Plot } from '@/lib/api'
 import { BASE_LAYERS, plotFillColor, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { log } from '@/lib/logger'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
 import { addPlotTileLayers, DEFAULT_NSPD_LAYER_VISIBILITY, setTatarstanCadastreLayer, updatePlotTileUrl, type NspdLayerVisibility } from '@/lib/plot-map-layers'
 import { addRoadLayers, setRoadLayerVisibility } from '@/lib/road-map-layers'
+import { addPoiLayers, removePoiLayers, setPoiLayerVisibility, updatePoiData } from '@/lib/settlement-pois'
 import MapOrientationControls from '@/components/MapOrientationControls'
 
 const SELECTED_PLOT_SOURCE_ID = 'selected-plot'
@@ -92,6 +93,7 @@ export default function MapView({
   boundaryGeometry = null,
   selectedPlot = null,
   showRoads = true,
+  showSettlementPois = true,
   showTatarstanCadastre = false,
   nspdLayerVisibility = DEFAULT_NSPD_LAYER_VISIBILITY,
   nspdOpacity = 1,
@@ -105,6 +107,7 @@ export default function MapView({
   boundaryGeometry?: Record<string, unknown> | null
   selectedPlot?: SelectedPlot | null
   showRoads?: boolean
+  showSettlementPois?: boolean
   showTatarstanCadastre?: boolean
   nspdLayerVisibility?: NspdLayerVisibility
   nspdOpacity?: number
@@ -119,6 +122,7 @@ export default function MapView({
   const boundaryGeometryRef = useRef<Record<string, unknown> | null>(boundaryGeometry)
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null)
   const showRoadsRef = useRef(showRoads)
+  const showSettlementPoisRef = useRef(showSettlementPois)
   const showTatarstanCadastreRef = useRef(showTatarstanCadastre)
   const nspdLayerVisibilityRef = useRef(nspdLayerVisibility)
   const nspdOpacityRef = useRef(nspdOpacity)
@@ -131,6 +135,7 @@ export default function MapView({
   useEffect(() => { selectedPlotRef.current = selectedPlot }, [selectedPlot])
   useEffect(() => { boundaryGeometryRef.current = boundaryGeometry }, [boundaryGeometry])
   useEffect(() => { showRoadsRef.current = showRoads }, [showRoads])
+  useEffect(() => { showSettlementPoisRef.current = showSettlementPois }, [showSettlementPois])
   useEffect(() => { showTatarstanCadastreRef.current = showTatarstanCadastre }, [showTatarstanCadastre])
   useEffect(() => { nspdLayerVisibilityRef.current = nspdLayerVisibility }, [nspdLayerVisibility])
   useEffect(() => { nspdOpacityRef.current = nspdOpacity }, [nspdOpacity])
@@ -230,6 +235,8 @@ export default function MapView({
     log('map', 'Добавление MVT tile слоёв')
     addPlotTileLayers(map, tileUrlRef.current)
     addRoadLayers(map, showRoadsRef.current, 'plots-border')
+    addPoiLayers(map)
+    setPoiLayerVisibility(map, showSettlementPoisRef.current)
     setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
     renderBoundary(map, boundaryGeometryRef.current)
     for (const layerId of ['plots-fill', 'plots-point-fallback']) {
@@ -263,6 +270,28 @@ export default function MapView({
       })
       log('map', 'Map object created')
 
+      let poiAbortController: AbortController | null = null
+      let poiMoveTimer: ReturnType<typeof setTimeout> | null = null
+      const fetchPoiData = () => {
+        if (!mounted || !mapReadyRef.current) return
+        const bounds = map.getBounds()
+        const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')
+        poiAbortController?.abort()
+        const controller = new AbortController()
+        poiAbortController = controller
+        api.pois.geo({ bbox, signal: controller.signal })
+          .then((data) => {
+            if (mounted && poiAbortController === controller) updatePoiData(map, data)
+          })
+          .catch((error) => {
+            if (!isAbortError(error)) log('error', 'POI request failed', String(error))
+          })
+      }
+      const schedulePoiFetch = () => {
+        if (poiMoveTimer) clearTimeout(poiMoveTimer)
+        poiMoveTimer = setTimeout(fetchPoiData, 250)
+      }
+
       map.on('error', (e) => {
         if (isAbortError(e.error)) return
         const detail = e as any
@@ -277,6 +306,8 @@ export default function MapView({
         mapReadyRef.current = true
         setMapLoaded(true)
         initMapLayers(map)
+        fetchPoiData()
+        map.on('moveend', schedulePoiFetch)
         onMapReadyRef.current?.(map)
       })
 
@@ -285,6 +316,8 @@ export default function MapView({
         if (!mounted) return
         addPlotTileLayers(map, tileUrlRef.current)
         addRoadLayers(map, showRoadsRef.current, 'plots-border')
+        addPoiLayers(map)
+        setPoiLayerVisibility(map, showSettlementPoisRef.current)
         setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
         renderBoundary(map, boundaryGeometryRef.current)
         renderSelectedPlot(map, selectedPlotRef.current)
@@ -314,10 +347,14 @@ export default function MapView({
       return () => {
         mounted = false
         clearTimeout(fallback)
+        if (poiMoveTimer) clearTimeout(poiMoveTimer)
+        poiAbortController?.abort()
+        map.off('moveend', schedulePoiFetch)
         if (selectedRestoreTimer) clearTimeout(selectedRestoreTimer)
         map.off('style.load', restoreSelectedPlot)
         selectedMarkerRef.current?.remove()
         selectedMarkerRef.current = null
+        removePoiLayers(map)
         map.remove()
         internalMapRef.current = null
         mapReadyRef.current = false
@@ -347,6 +384,12 @@ export default function MapView({
     if (!map || !mapLoaded) return
     setRoadLayerVisibility(map, showRoads)
   }, [mapLoaded, showRoads])
+
+  useEffect(() => {
+    const map = internalMapRef.current
+    if (!map || !mapLoaded) return
+    setPoiLayerVisibility(map, showSettlementPois)
+  }, [mapLoaded, showSettlementPois])
 
   useEffect(() => {
     const map = internalMapRef.current

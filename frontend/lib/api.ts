@@ -156,6 +156,41 @@ export interface UserResponse {
   is_active: boolean
 }
 
+export type PoiType = 'shop' | 'playground' | 'sports' | 'checkpoint' | 'entrance' | 'exit' | 'parking' | 'school' | 'kindergarten' | 'cafe' | 'medical' | 'sales_office' | 'other'
+
+export interface SettlementPoi {
+  id: string
+  settlement_id: string
+  settlement_name: string
+  poi_type: PoiType
+  custom_type_label?: string | null
+  name: string
+  description?: string | null
+  longitude: number
+  latitude: number
+  is_published: boolean
+}
+
+export interface SettlementPoiInput {
+  settlement_id: string
+  poi_type: PoiType
+  custom_type_label?: string | null
+  name: string
+  description?: string | null
+  longitude: number
+  latitude: number
+  is_published?: boolean
+}
+
+export interface PoiFeatureCollection {
+  type: 'FeatureCollection'
+  features: Array<{
+    type: 'Feature'
+    geometry: { type: 'Point'; coordinates: [number, number] }
+    properties: Omit<SettlementPoi, 'longitude' | 'latitude' | 'is_published'>
+  }>
+}
+
 import { safeGet } from './storage'
 
 
@@ -226,6 +261,14 @@ export interface RestrictionLayersInfo {
 }
 
 export const api = {
+  pois: {
+    geo: ({ bbox, types, signal }: { bbox: string; types?: string; signal?: AbortSignal }) =>
+      request<PoiFeatureCollection>('/pois?' + new URLSearchParams({ bbox, ...(types ? { types } : {}) }).toString(), { signal }),
+    adminList: (settlementId: string) => request<SettlementPoi[]>('/pois/admin?settlement_id=' + encodeURIComponent(settlementId)),
+    create: (data: SettlementPoiInput) => request<SettlementPoi>('/pois', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: Partial<SettlementPoiInput>) => request<SettlementPoi>('/pois/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>('/pois/' + id, { method: 'DELETE' }),
+  },
   plots: {
     list: (params?: Record<string, string>) => {
       const qs = params ? '?' + new URLSearchParams(params).toString() : ''
