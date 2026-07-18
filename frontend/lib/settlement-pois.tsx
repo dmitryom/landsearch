@@ -207,7 +207,6 @@ function createPoiMarker(
   const element = document.createElement('button')
   element.type = 'button'
   element.className = 'flex h-8 w-8 items-center justify-center rounded-full border-2 border-white shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2'
-  element.setAttribute('aria-label', markerLabel(properties))
   const root = createRoot(element)
   root.render(<Icon size={16} color="white" strokeWidth={2.5} />)
   element.style.backgroundColor = POI_COLORS[poiType]
@@ -215,6 +214,7 @@ function createPoiMarker(
   const marker = new maplibregl.Marker({ element, anchor: 'bottom' })
     .setLngLat(coordinates)
     .addTo(map)
+  element.setAttribute('aria-label', markerLabel(properties))
   const onClick = (event: MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
