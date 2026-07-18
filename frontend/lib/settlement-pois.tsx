@@ -23,6 +23,7 @@ import type { PoiFeatureCollection, PoiType } from '@/lib/api'
 export const POI_SOURCE_ID = 'settlement-pois'
 const POI_CLUSTER_LAYER_ID = 'settlement-poi-clusters'
 const POI_CLUSTER_COUNT_LAYER_ID = 'settlement-poi-cluster-count'
+const MARKER_REFRESH_DELAY_MS = 50
 
 export const POI_TYPES = [
   'shop',
@@ -95,14 +96,21 @@ type PoiMarker = {
   root: Root
   element: HTMLButtonElement
   onClick: (event: MouseEvent) => void
+  signature: string
 }
 
 type PoiLayerState = {
   data: PoiFeatureCollection
   visible: boolean
   markers: Map<string, PoiMarker>
+  markerRefreshTimer: number | null
   refreshMarkers: () => void
-  sourceDataListener: () => void
+  scheduleMarkerRefresh: () => void
+  sourceDataListener: (event: maplibregl.MapSourceDataEvent) => void
+  clusterClickListener: (event: maplibregl.MapLayerMouseEvent) => void
+  clusterMouseEnterListener: () => void
+  clusterMouseLeaveListener: () => void
+  interactionsRegistered: boolean
 }
 
 const states = new WeakMap<maplibregl.Map, PoiLayerState>()
@@ -115,6 +123,12 @@ function poiLabel(properties: Record<string, unknown>): string {
   const type = isPoiType(properties.poi_type) ? properties.poi_type : 'other'
   const customTypeLabel = typeof properties.custom_type_label === 'string' ? properties.custom_type_label.trim() : ''
   return type === 'other' && customTypeLabel ? customTypeLabel : POI_LABELS[type]
+}
+
+function markerLabel(properties: Record<string, unknown>): string {
+  const name = typeof properties.name === 'string' && properties.name.trim() ? properties.name.trim() : 'Инфраструктура'
+  const settlement = typeof properties.settlement_name === 'string' ? properties.settlement_name.trim() : ''
+  return [name, poiLabel(properties), settlement].filter(Boolean).join(', ')
 }
 
 function removeMarker(marker: PoiMarker) {
@@ -159,35 +173,58 @@ function popupContent(properties: Record<string, unknown>): HTMLElement {
   return content
 }
 
-function createPoiMarker(map: maplibregl.Map, feature: maplibregl.MapGeoJSONFeature): PoiMarker | null {
+function pointCoordinates(feature: maplibregl.MapGeoJSONFeature): [number, number] | null {
   if (feature.geometry.type !== 'Point') return null
   const coordinates = feature.geometry.coordinates
   if (!Array.isArray(coordinates) || coordinates.length < 2) return null
+  const longitude = Number(coordinates[0])
+  const latitude = Number(coordinates[1])
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null
+  return [longitude, latitude]
+}
 
+function markerSignature(feature: maplibregl.MapGeoJSONFeature, coordinates: [number, number]): string {
+  const properties = (feature.properties || {}) as Record<string, unknown>
+  return JSON.stringify([
+    coordinates,
+    properties.poi_type,
+    properties.custom_type_label,
+    properties.name,
+    properties.description,
+    properties.settlement_name,
+  ])
+}
+
+function createPoiMarker(
+  map: maplibregl.Map,
+  feature: maplibregl.MapGeoJSONFeature,
+  coordinates: [number, number],
+  signature: string,
+): PoiMarker {
   const properties = (feature.properties || {}) as Record<string, unknown>
   const poiType = isPoiType(properties.poi_type) ? properties.poi_type : 'other'
   const Icon = POI_ICONS[poiType]
   const element = document.createElement('button')
   element.type = 'button'
   element.className = 'flex h-8 w-8 items-center justify-center rounded-full border-2 border-white shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2'
-  element.setAttribute('aria-label', poiLabel(properties))
+  element.setAttribute('aria-label', markerLabel(properties))
   const root = createRoot(element)
   root.render(<Icon size={16} color="white" strokeWidth={2.5} />)
   element.style.backgroundColor = POI_COLORS[poiType]
 
   const marker = new maplibregl.Marker({ element, anchor: 'bottom' })
-    .setLngLat([Number(coordinates[0]), Number(coordinates[1])])
+    .setLngLat(coordinates)
     .addTo(map)
   const onClick = (event: MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
     new maplibregl.Popup({ offset: 18, closeButton: true })
-      .setLngLat([Number(coordinates[0]), Number(coordinates[1])])
+      .setLngLat(coordinates)
       .setDOMContent(popupContent(properties))
       .addTo(map)
   }
   element.addEventListener('click', onClick)
-  return { marker, root, element, onClick }
+  return { marker, root, element, onClick, signature }
 }
 
 function addClusterLayers(map: maplibregl.Map) {
@@ -229,31 +266,107 @@ function syncLayerVisibility(map: maplibregl.Map, visible: boolean) {
   }
 }
 
+function registerClusterInteractions(map: maplibregl.Map, state: PoiLayerState) {
+  if (state.interactionsRegistered) return
+  map.on('click', POI_CLUSTER_LAYER_ID, state.clusterClickListener)
+  map.on('mouseenter', POI_CLUSTER_LAYER_ID, state.clusterMouseEnterListener)
+  map.on('mouseleave', POI_CLUSTER_LAYER_ID, state.clusterMouseLeaveListener)
+  state.interactionsRegistered = true
+}
+
 export function addPoiLayers(map: maplibregl.Map, data?: PoiFeatureCollection) {
   let state = states.get(map)
   if (!state) {
     const refreshMarkers = () => {
       const current = states.get(map)
       if (!current) return
-      clearMarkers(current)
-      if (!current.visible || !map.getSource(POI_SOURCE_ID)) return
+      if (!current.visible || !map.getSource(POI_SOURCE_ID)) {
+        clearMarkers(current)
+        return
+      }
+
+      const nextFeatures = new Map<string, maplibregl.MapGeoJSONFeature>()
       for (const feature of map.querySourceFeatures(POI_SOURCE_ID, { filter: ['!', ['has', 'point_count']] })) {
         const properties = (feature.properties || {}) as Record<string, unknown>
         const id = typeof properties.id === 'string' ? properties.id : ''
-        const marker = createPoiMarker(map, feature)
-        if (id && marker) current.markers.set(id, marker)
-        else if (marker) removeMarker(marker)
+        if (!id || !pointCoordinates(feature)) continue
+        if (nextFeatures.has(id)) continue
+        nextFeatures.set(id, feature)
       }
+
+      for (const [id, marker] of current.markers) {
+        if (!nextFeatures.has(id)) {
+          removeMarker(marker)
+          current.markers.delete(id)
+        }
+      }
+
+      for (const [id, feature] of nextFeatures) {
+        const coordinates = pointCoordinates(feature)
+        if (!coordinates) continue
+        const signature = markerSignature(feature, coordinates)
+        const existing = current.markers.get(id)
+        if (existing?.signature === signature) continue
+        if (existing) {
+          removeMarker(existing)
+          current.markers.delete(id)
+        }
+        current.markers.set(id, createPoiMarker(map, feature, coordinates, signature))
+      }
+    }
+    const scheduleMarkerRefresh = () => {
+      const current = states.get(map)
+      if (!current) return
+      if (current.markerRefreshTimer) clearTimeout(current.markerRefreshTimer)
+      current.markerRefreshTimer = window.setTimeout(() => {
+        const latest = states.get(map)
+        if (!latest) return
+        latest.markerRefreshTimer = null
+        latest.refreshMarkers()
+      }, MARKER_REFRESH_DELAY_MS)
+    }
+    const sourceDataListener = (event: maplibregl.MapSourceDataEvent) => {
+      if (event.sourceId !== POI_SOURCE_ID) return
+      scheduleMarkerRefresh()
+    }
+    const clusterClickListener = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0]
+      if (!feature || feature.geometry.type !== 'Point') return
+      const coordinates = feature.geometry.coordinates
+      const clusterId = Number(feature.properties?.cluster_id)
+      const source = map.getSource(POI_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+      if (!source || !Number.isFinite(clusterId) || !Array.isArray(coordinates)) return
+      source.getClusterExpansionZoom(clusterId)
+        .then((zoom) => {
+          if (!states.has(map)) return
+          map.easeTo({
+            center: [Number(coordinates[0]), Number(coordinates[1])],
+            zoom,
+          })
+        })
+        .catch(() => undefined)
+    }
+    const clusterMouseEnterListener = () => {
+      map.getCanvas().style.cursor = 'pointer'
+    }
+    const clusterMouseLeaveListener = () => {
+      map.getCanvas().style.cursor = ''
     }
     state = {
       data: data || EMPTY_POI_DATA,
       visible: true,
       markers: new Map(),
+      markerRefreshTimer: null,
       refreshMarkers,
-      sourceDataListener: refreshMarkers,
+      scheduleMarkerRefresh,
+      sourceDataListener,
+      clusterClickListener,
+      clusterMouseEnterListener,
+      clusterMouseLeaveListener,
+      interactionsRegistered: false,
     }
     states.set(map, state)
-    map.on('moveend', state.refreshMarkers)
+    map.on('moveend', state.scheduleMarkerRefresh)
     map.on('sourcedata', state.sourceDataListener)
   } else if (data) {
     state.data = data
@@ -271,8 +384,9 @@ export function addPoiLayers(map: maplibregl.Map, data?: PoiFeatureCollection) {
     })
   }
   addClusterLayers(map)
+  registerClusterInteractions(map, state)
   syncLayerVisibility(map, state.visible)
-  window.setTimeout(state.refreshMarkers, 0)
+  state.scheduleMarkerRefresh()
 }
 
 export function setPoiLayerVisibility(map: maplibregl.Map, visible: boolean) {
@@ -280,7 +394,12 @@ export function setPoiLayerVisibility(map: maplibregl.Map, visible: boolean) {
   if (!state) return
   state.visible = visible
   syncLayerVisibility(map, visible)
-  state.refreshMarkers()
+  if (visible) state.scheduleMarkerRefresh()
+  else {
+    if (state.markerRefreshTimer) clearTimeout(state.markerRefreshTimer)
+    state.markerRefreshTimer = null
+    clearMarkers(state)
+  }
 }
 
 export function updatePoiData(map: maplibregl.Map, data: PoiFeatureCollection) {
@@ -292,14 +411,20 @@ export function updatePoiData(map: maplibregl.Map, data: PoiFeatureCollection) {
   state.data = data
   const source = map.getSource(POI_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
   if (source) source.setData(data as any)
-  window.setTimeout(state.refreshMarkers, 0)
+  state.scheduleMarkerRefresh()
 }
 
 export function removePoiLayers(map: maplibregl.Map) {
   const state = states.get(map)
   if (state) {
-    map.off('moveend', state.refreshMarkers)
+    if (state.markerRefreshTimer) clearTimeout(state.markerRefreshTimer)
+    map.off('moveend', state.scheduleMarkerRefresh)
     map.off('sourcedata', state.sourceDataListener)
+    if (state.interactionsRegistered) {
+      map.off('click', POI_CLUSTER_LAYER_ID, state.clusterClickListener)
+      map.off('mouseenter', POI_CLUSTER_LAYER_ID, state.clusterMouseEnterListener)
+      map.off('mouseleave', POI_CLUSTER_LAYER_ID, state.clusterMouseLeaveListener)
+    }
     clearMarkers(state)
     states.delete(map)
   }

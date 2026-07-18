@@ -266,8 +266,8 @@ export const api = {
       request<PoiFeatureCollection>('/pois?' + new URLSearchParams({ bbox, ...(types ? { types } : {}) }).toString(), { signal }),
     adminList: (settlementId: string) => request<SettlementPoi[]>('/pois/admin?settlement_id=' + encodeURIComponent(settlementId)),
     create: (data: SettlementPoiInput) => request<SettlementPoi>('/pois', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: Partial<SettlementPoiInput>) => request<SettlementPoi>('/pois/' + id, { method: 'PATCH', body: JSON.stringify(data) }),
-    delete: (id: string) => request<void>('/pois/' + id, { method: 'DELETE' }),
+    update: (id: string, data: Partial<SettlementPoiInput>) => request<SettlementPoi>('/pois/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>('/pois/' + encodeURIComponent(id), { method: 'DELETE' }),
   },
   plots: {
     list: (params?: Record<string, string>) => {
