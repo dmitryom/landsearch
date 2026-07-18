@@ -103,6 +103,8 @@ type PoiLayerState = {
   data: PoiFeatureCollection
   visible: boolean
   markers: Map<string, PoiMarker>
+  activePopup: maplibregl.Popup | null
+  activePopupId: string | null
   markerRefreshTimer: number | null
   refreshMarkers: () => void
   scheduleMarkerRefresh: () => void
@@ -131,14 +133,23 @@ function markerLabel(properties: Record<string, unknown>): string {
   return [name, poiLabel(properties), settlement].filter(Boolean).join(', ')
 }
 
-function removeMarker(marker: PoiMarker) {
+function clearActivePopup(state: PoiLayerState) {
+  const popup = state.activePopup
+  state.activePopup = null
+  state.activePopupId = null
+  popup?.remove()
+}
+
+function removeMarker(state: PoiLayerState, id: string, marker: PoiMarker) {
+  if (state.activePopupId === id) clearActivePopup(state)
   marker.element.removeEventListener('click', marker.onClick)
   marker.root.unmount()
   marker.marker.remove()
 }
 
 function clearMarkers(state: PoiLayerState) {
-  for (const marker of state.markers.values()) removeMarker(marker)
+  clearActivePopup(state)
+  for (const [id, marker] of state.markers) removeMarker(state, id, marker)
   state.markers.clear()
 }
 
@@ -197,6 +208,8 @@ function markerSignature(feature: maplibregl.MapGeoJSONFeature, coordinates: [nu
 
 function createPoiMarker(
   map: maplibregl.Map,
+  state: PoiLayerState,
+  id: string,
   feature: maplibregl.MapGeoJSONFeature,
   coordinates: [number, number],
   signature: string,
@@ -218,10 +231,18 @@ function createPoiMarker(
   const onClick = (event: MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
-    new maplibregl.Popup({ offset: 18, closeButton: true })
+    clearActivePopup(state)
+    const popup = new maplibregl.Popup({ offset: 18, closeButton: true })
       .setLngLat(coordinates)
       .setDOMContent(popupContent(properties))
       .addTo(map)
+    state.activePopup = popup
+    state.activePopupId = id
+    popup.on('close', () => {
+      if (state.activePopup !== popup) return
+      state.activePopup = null
+      state.activePopupId = null
+    })
   }
   element.addEventListener('click', onClick)
   return { marker, root, element, onClick, signature }
@@ -296,7 +317,7 @@ export function addPoiLayers(map: maplibregl.Map, data?: PoiFeatureCollection) {
 
       for (const [id, marker] of current.markers) {
         if (!nextFeatures.has(id)) {
-          removeMarker(marker)
+          removeMarker(current, id, marker)
           current.markers.delete(id)
         }
       }
@@ -308,10 +329,10 @@ export function addPoiLayers(map: maplibregl.Map, data?: PoiFeatureCollection) {
         const existing = current.markers.get(id)
         if (existing?.signature === signature) continue
         if (existing) {
-          removeMarker(existing)
+          removeMarker(current, id, existing)
           current.markers.delete(id)
         }
-        current.markers.set(id, createPoiMarker(map, feature, coordinates, signature))
+        current.markers.set(id, createPoiMarker(map, current, id, feature, coordinates, signature))
       }
     }
     const scheduleMarkerRefresh = () => {
@@ -356,6 +377,8 @@ export function addPoiLayers(map: maplibregl.Map, data?: PoiFeatureCollection) {
       data: data || EMPTY_POI_DATA,
       visible: true,
       markers: new Map(),
+      activePopup: null,
+      activePopupId: null,
       markerRefreshTimer: null,
       refreshMarkers,
       scheduleMarkerRefresh,

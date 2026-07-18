@@ -43,6 +43,15 @@ test('POI source events are gated and debounced before marker reconciliation', a
   assert.match(source, /map\.off\('sourcedata', state\.sourceDataListener\)/)
 })
 
+test('POI popup closes when its marker is hidden or leaves the viewport', async () => {
+  const source = await readFile(poiMapModule, 'utf8')
+
+  assert.match(source, /activePopupId: string \| null/)
+  assert.match(source, /if \(state\.activePopupId === id\) clearActivePopup\(state\)/)
+  assert.match(source, /popup\?\.remove\(\)/)
+  assert.match(source, /state\.activePopupId = null/)
+})
+
 test('POI API encodes mutation IDs in path segments', async () => {
   const source = await readFile(apiClient, 'utf8')
 
