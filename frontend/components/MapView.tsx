@@ -121,6 +121,9 @@ export default function MapView({
   const selectedPlotRef = useRef<SelectedPlot | null>(selectedPlot)
   const boundaryGeometryRef = useRef<Record<string, unknown> | null>(boundaryGeometry)
   const selectedMarkerRef = useRef<maplibregl.Marker | null>(null)
+  const poiAbortControllerRef = useRef<AbortController | null>(null)
+  const poiMoveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const poiFetchRef = useRef<(() => void) | null>(null)
   const showRoadsRef = useRef(showRoads)
   const showSettlementPoisRef = useRef(showSettlementPois)
   const showTatarstanCadastreRef = useRef(showTatarstanCadastre)
@@ -270,26 +273,25 @@ export default function MapView({
       })
       log('map', 'Map object created')
 
-      let poiAbortController: AbortController | null = null
-      let poiMoveTimer: ReturnType<typeof setTimeout> | null = null
       const fetchPoiData = () => {
-        if (!mounted || !mapReadyRef.current) return
+        if (!mounted || !mapReadyRef.current || !showSettlementPoisRef.current) return
         const bounds = map.getBounds()
         const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')
-        poiAbortController?.abort()
+        poiAbortControllerRef.current?.abort()
         const controller = new AbortController()
-        poiAbortController = controller
+        poiAbortControllerRef.current = controller
         api.pois.geo({ bbox, signal: controller.signal })
           .then((data) => {
-            if (mounted && poiAbortController === controller) updatePoiData(map, data)
+            if (mounted && poiAbortControllerRef.current === controller) updatePoiData(map, data)
           })
           .catch((error) => {
             if (!isAbortError(error)) log('error', 'POI request failed', String(error))
           })
       }
+      poiFetchRef.current = fetchPoiData
       const schedulePoiFetch = () => {
-        if (poiMoveTimer) clearTimeout(poiMoveTimer)
-        poiMoveTimer = setTimeout(fetchPoiData, 250)
+        if (poiMoveTimerRef.current) clearTimeout(poiMoveTimerRef.current)
+        poiMoveTimerRef.current = setTimeout(fetchPoiData, 250)
       }
 
       map.on('error', (e) => {
@@ -347,8 +349,11 @@ export default function MapView({
       return () => {
         mounted = false
         clearTimeout(fallback)
-        if (poiMoveTimer) clearTimeout(poiMoveTimer)
-        poiAbortController?.abort()
+        if (poiMoveTimerRef.current) clearTimeout(poiMoveTimerRef.current)
+        poiAbortControllerRef.current?.abort()
+        poiFetchRef.current = null
+        poiMoveTimerRef.current = null
+        poiAbortControllerRef.current = null
         map.off('moveend', schedulePoiFetch)
         if (selectedRestoreTimer) clearTimeout(selectedRestoreTimer)
         map.off('style.load', restoreSelectedPlot)
@@ -389,6 +394,14 @@ export default function MapView({
     const map = internalMapRef.current
     if (!map || !mapLoaded) return
     setPoiLayerVisibility(map, showSettlementPois)
+    if (!showSettlementPois) {
+      if (poiMoveTimerRef.current) clearTimeout(poiMoveTimerRef.current)
+      poiAbortControllerRef.current?.abort()
+      poiMoveTimerRef.current = null
+      poiAbortControllerRef.current = null
+      return
+    }
+    poiFetchRef.current?.()
   }, [mapLoaded, showSettlementPois])
 
   useEffect(() => {

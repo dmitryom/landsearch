@@ -162,6 +162,28 @@ class _RowsSession:
 
 
 @pytest.mark.asyncio
+async def test_public_pois_without_tenant_return_empty_without_requesting_redis(monkeypatch):
+    requested = False
+
+    async def get_cache():
+        nonlocal requested
+        requested = True
+        raise AssertionError("Redis must not be requested without a public tenant")
+
+    monkeypatch.setattr(pois_api, "_get_redis", get_cache)
+
+    response = await pois_api.list_public_pois(
+        bbox="48.0,55.0,50.0,56.0",
+        types=None,
+        session=object(),
+        tenant_id=None,
+    )
+
+    assert response == {"type": "FeatureCollection", "features": []}
+    assert not requested
+
+
+@pytest.mark.asyncio
 async def test_redis_client_is_closed_when_ping_fails(monkeypatch):
     cache = _FakeRedis(fail_ping=True)
     monkeypatch.setattr(pois_api.aioredis, "from_url", lambda *_args, **_kwargs: cache)

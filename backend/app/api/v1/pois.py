@@ -172,6 +172,9 @@ async def list_public_pois(
 ):
     parsed_bbox = _parse_bbox(bbox)
     parsed_types = _parse_types(types)
+    if tenant_id is None:
+        return {"type": "FeatureCollection", "features": []}
+
     cache_key = _cache_key(tenant_id, parsed_bbox, parsed_types)
     cache = await _get_redis()
     try:
@@ -182,9 +185,6 @@ async def list_public_pois(
                     return json.loads(cached)
             except Exception:
                 pass
-
-        if tenant_id is None:
-            return {"type": "FeatureCollection", "features": []}
 
         min_lng, min_lat, max_lng, max_lat = parsed_bbox
         envelope = func.ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326)

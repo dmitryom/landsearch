@@ -161,7 +161,6 @@ export type PoiType = 'shop' | 'playground' | 'sports' | 'checkpoint' | 'entranc
 export interface SettlementPoi {
   id: string
   settlement_id: string
-  settlement_name: string
   poi_type: PoiType
   custom_type_label?: string | null
   name: string
@@ -169,6 +168,16 @@ export interface SettlementPoi {
   longitude: number
   latitude: number
   is_published: boolean
+}
+
+export interface PublicPoiFeatureProperties {
+  id: string
+  settlement_id: string
+  settlement_name: string
+  poi_type: PoiType
+  custom_type_label?: string | null
+  name: string
+  description?: string | null
 }
 
 export interface SettlementPoiInput {
@@ -187,7 +196,7 @@ export interface PoiFeatureCollection {
   features: Array<{
     type: 'Feature'
     geometry: { type: 'Point'; coordinates: [number, number] }
-    properties: Omit<SettlementPoi, 'longitude' | 'latitude' | 'is_published'>
+    properties: PublicPoiFeatureProperties
   }>
 }
 
