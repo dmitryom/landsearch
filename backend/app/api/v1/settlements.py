@@ -15,6 +15,7 @@ from ...models import User, UserRole
 from ...schemas import SettlementBulkCreate, SettlementBoundaryPreview, SettlementBoundaryUpdate, SettlementResponse
 from ...utils.plot_helpers import plot_to_response
 from ...services.analysis import analyze_settlement
+from ...services.boundary_coverage import boundary_covers_majority
 from ...services.cadastre import import_landplots_in_contour
 from ..deps import get_tenant_scope_optional, require_role
 from .plots import _invalidate_plot_map_cache
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/settlements", tags=["settlements"])
 
 
 def _settlement_plot_scope(settlement_id, tenant_id):
-    """Return plots whose complete geometry is covered by the settlement boundary."""
+    """Return plots fully or mostly covered by the settlement boundary."""
     return select(Plot).join(
         Settlement,
         and_(Settlement.id == settlement_id, Settlement.tenant_id == tenant_id),
@@ -34,7 +35,7 @@ def _settlement_plot_scope(settlement_id, tenant_id):
         Plot.is_active,
         Plot.geometry.isnot(None),
         Settlement.geometry.isnot(None),
-        func.ST_CoveredBy(Plot.geometry, Settlement.geometry),
+        boundary_covers_majority(Plot.geometry, Settlement.geometry),
     )
 
 
@@ -80,7 +81,7 @@ async def _boundary_summary(session: AsyncSession, tenant_id, geometry) -> dict:
         Plot.tenant_id == tenant_id,
         Plot.is_active,
         Plot.geometry.isnot(None),
-        func.ST_CoveredBy(Plot.geometry, boundary),
+        boundary_covers_majority(Plot.geometry, boundary),
     ).group_by(Plot.status)
     result = await session.execute(stmt)
     by_status = _empty_boundary_status_counts()
@@ -104,7 +105,7 @@ async def _boundary_stats(session: AsyncSession, tenant_id, geometry) -> dict:
 
 
 async def _link_unassigned_nspd_plots_to_settlement(session: AsyncSession, tenant_id, settlement_id, geometry) -> int:
-    """Attach existing NSPD plots inside a saved boundary without moving other settlements data."""
+    """Attach unassigned NSPD plots fully or mostly inside a saved boundary."""
     if geometry is None:
         return 0
     boundary = WKTElement(geometry.wkt, srid=4326)
@@ -115,7 +116,7 @@ async def _link_unassigned_nspd_plots_to_settlement(session: AsyncSession, tenan
             Plot.is_active,
             Plot.geometry.isnot(None),
             Plot.settlement_id.is_(None),
-            func.ST_CoveredBy(Plot.geometry, boundary),
+            boundary_covers_majority(Plot.geometry, boundary),
         )
         .values(settlement_id=settlement_id)
     )
@@ -128,7 +129,7 @@ async def _unlink_nspd_plots_outside_settlement_boundary(
     settlement_id,
     geometry,
 ) -> int:
-    """Remove stale NSPD assignments that are not fully covered by the saved boundary."""
+    """Remove NSPD assignments that are not mostly covered by the saved boundary."""
     if geometry is None:
         return 0
     boundary = WKTElement(geometry.wkt, srid=4326)
@@ -140,7 +141,7 @@ async def _unlink_nspd_plots_outside_settlement_boundary(
             Plot.imported_from == "nspd",
             or_(
                 Plot.geometry.is_(None),
-                ~func.ST_CoveredBy(Plot.geometry, boundary),
+                ~boundary_covers_majority(Plot.geometry, boundary),
             ),
         )
         .values(settlement_id=None)

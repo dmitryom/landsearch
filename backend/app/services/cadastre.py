@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import CadastreCache, Plot, PlotStatus
+from .boundary_coverage import shape_is_covered_by_majority
 
 logger = logging.getLogger(__name__)
 
@@ -431,7 +432,7 @@ async def import_landplots_in_contour(
     settlement_id,
     contour,
 ) -> dict[str, int]:
-    """Import only NSPD land plots whose complete geometry is inside the boundary."""
+    """Import NSPD plots fully or mostly inside the saved boundary."""
     if not _NSPD_AVAILABLE or Nspd is None:
         raise RuntimeError("pynspd is not available")
 
@@ -472,7 +473,7 @@ async def import_landplots_in_contour(
         if plot_shape.is_empty or plot_shape.geom_type not in {"Polygon", "MultiPolygon"}:
             skipped += 1
             continue
-        if not import_boundary.covers(plot_shape):
+        if not shape_is_covered_by_majority(plot_shape, import_boundary):
             excluded += 1
             continue
         candidates.append((cadastral_number, data or {}, from_shape(plot_shape, srid=4326)))

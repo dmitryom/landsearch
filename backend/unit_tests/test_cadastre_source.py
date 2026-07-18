@@ -2,10 +2,11 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon, box
 
 from app.models import Plot, PlotStatus
 from app.services import cadastre
+from app.services.boundary_coverage import shape_is_covered_by_majority
 from app.services.cadastre import _apply_enrichment
 
 
@@ -158,13 +159,15 @@ async def test_contour_import_reactivates_existing_deleted_plot(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_contour_import_only_accepts_parcels_fully_inside_boundary(monkeypatch):
+async def test_contour_import_accepts_parcels_with_more_than_half_inside_boundary(monkeypatch):
     tenant_id = uuid4()
     settlement_id = uuid4()
     _FeatureNspd.features = [
         _Feature("16:24:000001:1", box(1, 1, 2, 2)),
-        _Feature("16:24:000001:2", box(9, 9, 11, 11)),
-        _Feature("16:24:000001:3", box(10, 3, 11, 4)),
+        _Feature("16:24:000001:2", box(9, 1, 10.5, 2)),
+        _Feature("16:24:000001:3", box(9, 3, 11, 4)),
+        _Feature("16:24:000001:4", box(9.5, 5, 11, 6)),
+        _Feature("16:24:000001:5", box(10, 7, 11, 8)),
     ]
     session = _CollectingPlotSession()
     monkeypatch.setattr(cadastre, "_NSPD_AVAILABLE", True)
@@ -184,12 +187,33 @@ async def test_contour_import_only_accepts_parcels_fully_inside_boundary(monkeyp
         contour=box(0, 0, 10, 10),
     )
 
-    assert result == {"found": 3, "imported": 1, "updated": 0, "skipped": 0, "excluded": 2}
-    assert [plot.cadastral_number for plot in session.added] == ["16:24:000001:1"]
+    assert result == {"found": 5, "imported": 2, "updated": 0, "skipped": 0, "excluded": 3}
+    assert [plot.cadastral_number for plot in session.added] == [
+        "16:24:000001:1",
+        "16:24:000001:2",
+    ]
+
+
+def test_boundary_majority_coverage_is_strictly_greater_than_half():
+    boundary = box(0, 0, 10, 10)
+
+    assert shape_is_covered_by_majority(box(1, 1, 2, 2), boundary)
+    assert shape_is_covered_by_majority(box(0, 1, 2, 2), boundary)
+    assert shape_is_covered_by_majority(box(9, 1, 10.5, 2), boundary)
+    assert not shape_is_covered_by_majority(box(9, 3, 11, 4), boundary)
+    assert not shape_is_covered_by_majority(box(9.5, 5, 11, 6), boundary)
+    assert not shape_is_covered_by_majority(box(10, 7, 11, 8), boundary)
+
+
+def test_boundary_majority_coverage_repairs_invalid_plot_geometry():
+    invalid_bow_tie = Polygon([(1, 1), (3, 3), (1, 3), (3, 1), (1, 1)])
+
+    assert not invalid_bow_tie.is_valid
+    assert shape_is_covered_by_majority(invalid_bow_tie, box(0, 0, 10, 10))
 
 
 @pytest.mark.asyncio
-async def test_radius_import_only_accepts_parcels_fully_inside_circle(monkeypatch):
+async def test_radius_import_accepts_parcels_with_more_than_half_inside_circle(monkeypatch):
     tenant_id = uuid4()
     settlement_id = uuid4()
     _FeatureNspd.features = [
@@ -215,5 +239,8 @@ async def test_radius_import_only_accepts_parcels_fully_inside_circle(monkeypatc
         contour=Point(0, 0).buffer(10),
     )
 
-    assert result == {"found": 3, "imported": 1, "updated": 0, "skipped": 0, "excluded": 2}
-    assert [plot.cadastral_number for plot in session.added] == ["16:24:000002:1"]
+    assert result == {"found": 3, "imported": 2, "updated": 0, "skipped": 0, "excluded": 1}
+    assert [plot.cadastral_number for plot in session.added] == [
+        "16:24:000002:1",
+        "16:24:000002:2",
+    ]

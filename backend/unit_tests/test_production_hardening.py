@@ -17,7 +17,7 @@ from app.core.security import create_refresh_token
 from app.schemas import LoginRequest, PlotCreate, PlotUpdate
 
 
-def test_settlement_boundary_scopes_require_full_plot_coverage():
+def test_settlement_boundary_scopes_require_more_than_half_plot_coverage():
     tenant_id = uuid4()
     settlement_id = uuid4()
 
@@ -28,10 +28,14 @@ def test_settlement_boundary_scopes_require_full_plot_coverage():
         )
     )
 
-    assert "ST_CoveredBy" in settlement_scope
-    assert "ST_CoveredBy" in plot_scope
-    assert "ST_Intersects" not in settlement_scope
-    assert "ST_Intersects" not in plot_scope
+    assert "ST_MakeValid" in settlement_scope
+    assert "ST_MakeValid" in plot_scope
+    assert "ST_Intersection" in settlement_scope
+    assert "ST_Intersection" in plot_scope
+    assert "ST_Area" in settlement_scope
+    assert "ST_Area" in plot_scope
+    assert "&&" in settlement_scope
+    assert "&&" in plot_scope
 
 
 class _RowcountSession:
@@ -45,7 +49,7 @@ class _RowcountSession:
 
 
 @pytest.mark.asyncio
-async def test_boundary_sync_unlinks_nspd_plots_not_fully_covered():
+async def test_boundary_sync_unlinks_nspd_plots_not_covered_by_more_than_half():
     session = _RowcountSession(rowcount=4)
 
     unlinked = await settlements_api._unlink_nspd_plots_outside_settlement_boundary(
@@ -56,7 +60,11 @@ async def test_boundary_sync_unlinks_nspd_plots_not_fully_covered():
     )
 
     assert unlinked == 4
-    assert "NOT ST_CoveredBy" in session.statements[0]
+    assert "NOT" in session.statements[0]
+    assert "ST_MakeValid" in session.statements[0]
+    assert "ST_Intersection" in session.statements[0]
+    assert "ST_Area" in session.statements[0]
+    assert "&&" in session.statements[0]
     assert "plots.imported_from" in session.statements[0]
 
 
@@ -271,7 +279,9 @@ async def test_plot_tiles_filters_vector_layer_by_settlement_id(monkeypatch):
     )
 
     assert "boundary.id = :settlement_id" in session.statement
-    assert "ST_CoveredBy(p.geometry, boundary.geometry)" in session.statement
+    assert "p.geometry && boundary.geometry" in session.statement
+    assert "ST_Area(ST_Intersection(ST_MakeValid(p.geometry), boundary.geometry))" in session.statement
+    assert "> ST_Area(ST_MakeValid(p.geometry)) * 0.5" in session.statement
     assert session.params["settlement_id"] == settlement_id
 
     await plots_api.plot_tiles(

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Plot, PlotStatus, Settlement, User
+from .boundary_coverage import boundary_covers_majority
 from .vri import normalize_vri
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ def _analysis_plot_scope(settlement_id: UUID, tenant_id=None):
         Plot.is_active,
         Plot.geometry.isnot(None),
         Settlement.geometry.isnot(None),
-        func.ST_CoveredBy(Plot.geometry, Settlement.geometry),
+        boundary_covers_majority(Plot.geometry, Settlement.geometry),
     )
     if tenant_id is not None:
         stmt = stmt.where(

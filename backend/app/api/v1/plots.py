@@ -25,6 +25,7 @@ from ...services.cadastre import (
     fetch_nspd_wms_tile,
     lookup_cadastre,
 )
+from ...services.boundary_coverage import boundary_covers_majority, boundary_covers_majority_sql
 from ...services.similar import find_similar_plots
 from ...utils.plot_helpers import plot_to_response
 from ...services.vri import normalize_vri
@@ -104,7 +105,7 @@ async def _resolve_owned_settlement_id(
 
 
 def _apply_settlement_boundary_scope(stmt, settlement_id: str | UUID, tenant_id: UUID):
-    """Restrict plots to parcels fully covered by the selected settlement boundary."""
+    """Restrict plots to parcels fully or mostly covered by the boundary."""
     settlement_uuid = settlement_id if isinstance(settlement_id, UUID) else _parse_uuid(settlement_id, "settlement_id")
     boundary = aliased(Settlement, name="boundary")
     return stmt.join(
@@ -116,7 +117,7 @@ def _apply_settlement_boundary_scope(stmt, settlement_id: str | UUID, tenant_id:
     ).where(
         boundary.geometry.isnot(None),
         Plot.geometry.isnot(None),
-        func.ST_CoveredBy(Plot.geometry, boundary.geometry),
+        boundary_covers_majority(Plot.geometry, boundary.geometry),
     )
 
 
@@ -239,7 +240,7 @@ async def plots_geojson(
     cache = await _get_redis()
     cache_key = _cache_key(
         "plots:geo",
-        boundary_scope="covered-v1",
+        boundary_scope="majority-v2",
         tenant_id=tenant_id,
         bbox=bbox,
         query=query,
@@ -395,7 +396,7 @@ async def plot_tiles(
     normalized_query = _normalized_search_query(query)
     settlement_uuid = _parse_uuid(settlement_id, "settlement_id") if settlement_id else None
     cache_key = (
-        f"landsearch:tiles:{tenant_cache_part}:boundary-covered-v3:{z}/{x}/{y}:"
+        f"landsearch:tiles:{tenant_cache_part}:boundary-majority-v4:{z}/{x}/{y}:"
         f"{normalized_query or ''}:{settlement_uuid or ''}:{status or ''}:{permitted_use or ''}:{category or ''}:{cad_unit or ''}:{region or ''}"
     )
 
@@ -424,7 +425,7 @@ async def plot_tiles(
          AND boundary.tenant_id = :tenant_id
          AND boundary.geometry IS NOT NULL
         """
-        where_clauses.append("ST_CoveredBy(p.geometry, boundary.geometry)")
+        where_clauses.append(boundary_covers_majority_sql())
         params["settlement_id"] = settlement_uuid
     status_values = _status_values(status)
     if len(status_values) == 1:
