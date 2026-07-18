@@ -1,24 +1,34 @@
+import asyncio
+import base64
 import hashlib
 import json
+import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from geoalchemy2 import shape
 from shapely.geometry import mapping
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 
 from ...core.config import settings
 from ...core.database import get_session
 from ...core.exceptions import BadRequestException, NotFoundException
 from ...metrics import CACHE_HITS, CACHE_MISSES, PLOTS_GEO_TOTAL
-from ...models import Plot, PlotStatus, Settlement, User
-from ...schemas import PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotStatsResponse, PlotUpdate
-from ...services.cadastre import batch_enrich, enrich_from_cadastre, lookup_cadastre
+from ...models import Plot, PlotStatus, Settlement, User, UserRole
+from ...schemas import BulkPlotDelete, BulkPlotStatusUpdate, PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotStatsResponse, PlotUpdate
+from ...services.cadastre import (
+    NSPD_WMS_LAYERS,
+    batch_enrich,
+    enrich_from_cadastre,
+    fetch_nspd_wms_tile,
+    lookup_cadastre,
+)
 from ...services.similar import find_similar_plots
 from ...utils.plot_helpers import plot_to_response
-from ..deps import get_current_user, get_tenant_scope_optional
+from ...services.vri import normalize_vri
+from ..deps import get_current_user, get_tenant_scope_optional, require_role
 
 import redis.asyncio as aioredis
 
@@ -26,6 +36,13 @@ ALLOWED_SORT_FIELDS = {"created_at", "price", "area_m2", "cadastral_number"}
 PLOT_SEARCH_MIN_LENGTH = 2
 
 router = APIRouter(prefix="/plots", tags=["plots"])
+logger = logging.getLogger(__name__)
+
+# One map viewport can request many raster tiles at once. Keep the upstream
+# NSPD client bounded per worker so a tile burst cannot exhaust threads or
+# make ordinary plot requests wait behind remote WMS calls.
+_NSPD_WMS_CONCURRENCY = 2
+_nspd_wms_semaphore = asyncio.BoundedSemaphore(_NSPD_WMS_CONCURRENCY)
 
 
 def _parse_uuid(value: str, field_name: str) -> UUID:
@@ -40,6 +57,13 @@ def _normalized_search_query(query: str | None) -> str | None:
         return None
     term = query.strip()
     return term if len(term) >= PLOT_SEARCH_MIN_LENGTH else None
+
+
+def _status_values(status: str | None) -> list[str]:
+    """Parse the public comma-separated status filter without changing bulk API semantics."""
+    if not status:
+        return []
+    return list(dict.fromkeys(value.strip() for value in status.split(",") if value.strip()))
 
 
 def _apply_plot_search(stmt, query: str | None):
@@ -79,6 +103,23 @@ async def _resolve_owned_settlement_id(
     return settlement_uuid
 
 
+def _apply_settlement_boundary_scope(stmt, settlement_id: str | UUID, tenant_id: UUID):
+    """Restrict plots to parcels that intersect the selected settlement boundary."""
+    settlement_uuid = settlement_id if isinstance(settlement_id, UUID) else _parse_uuid(settlement_id, "settlement_id")
+    boundary = aliased(Settlement, name="boundary")
+    return stmt.join(
+        boundary,
+        and_(
+            boundary.id == settlement_uuid,
+            boundary.tenant_id == tenant_id,
+        ),
+    ).where(
+        boundary.geometry.isnot(None),
+        Plot.geometry.isnot(None),
+        func.ST_Intersects(Plot.geometry, boundary.geometry),
+    )
+
+
 @router.get("", response_model=PlotListResponse)
 async def list_plots(
     query: str | None = Query(None),
@@ -94,6 +135,7 @@ async def list_plots(
     district: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
+    include_geometry: bool = Query(default=True),
     sort_by: str = "created_at",
     sort_order: str = "desc",
     session: AsyncSession = Depends(get_session),
@@ -105,10 +147,11 @@ async def list_plots(
     stmt = select(Plot).where(Plot.is_active, Plot.tenant_id == tenant_id)
 
     if settlement_id:
-        stmt = stmt.where(Plot.settlement_id == _parse_uuid(settlement_id, "settlement_id"))
+        stmt = _apply_settlement_boundary_scope(stmt, settlement_id, tenant_id)
     stmt = _apply_plot_search(stmt, query)
-    if status:
-        stmt = stmt.where(Plot.status == status)
+    status_values = _status_values(status)
+    if status_values:
+        stmt = stmt.where(Plot.status.in_(status_values))
     if permitted_use:
         stmt = stmt.where(Plot.permitted_use.ilike(f"%{permitted_use}%"))
     if category:
@@ -136,7 +179,7 @@ async def list_plots(
     plots = result.scalars().all()
 
     return PlotListResponse(
-        items=[plot_to_response(p) for p in plots],
+        items=[plot_to_response(p, include_geometry=include_geometry) for p in plots],
         total=total,
         page=page,
         page_size=page_size,
@@ -146,7 +189,29 @@ async def list_plots(
 def _cache_key(prefix: str, **kwargs) -> str:
     raw = json.dumps(kwargs, sort_keys=True, default=str)
     h = hashlib.md5(raw.encode()).hexdigest()[:12]
-    return f"landsearch:{prefix}:{h}"
+    tenant_part = str(kwargs.get("tenant_id") or "none")
+    return f"landsearch:{prefix}:{tenant_part}:{h}"
+
+
+async def _invalidate_plot_map_cache(tenant_id: UUID) -> None:
+    cache = await _get_redis()
+    if not cache:
+        return
+
+    patterns = (
+        f"landsearch:plots:geo:{tenant_id}:*",
+        f"landsearch:tiles:{tenant_id}:*",
+    )
+    try:
+        keys = []
+        for pattern in patterns:
+            async for key in cache.scan_iter(match=pattern, count=500):
+                keys.append(key)
+        if keys:
+            await cache.delete(*keys)
+    except Exception:
+        # Cache invalidation must never turn a successful status update into a 500.
+        return
 
 
 async def _get_redis():
@@ -167,12 +232,14 @@ async def plots_geojson(
     permitted_use: str | None = None,
     category: str | None = None,
     cad_unit: str | None = None,
+    region: str | None = None,
     session: AsyncSession = Depends(get_session),
     tenant_id: UUID | None = Depends(get_tenant_scope_optional),
 ):
     cache = await _get_redis()
     cache_key = _cache_key(
         "plots:geo",
+        boundary_scope="covered-v1",
         tenant_id=tenant_id,
         bbox=bbox,
         query=query,
@@ -203,7 +270,7 @@ async def plots_geojson(
     )
 
     if settlement_id:
-        stmt = stmt.where(Plot.settlement_id == _parse_uuid(settlement_id, "settlement_id"))
+        stmt = _apply_settlement_boundary_scope(stmt, settlement_id, tenant_id)
 
     stmt = _apply_plot_search(stmt, query)
 
@@ -217,8 +284,9 @@ async def plots_geojson(
         except (ValueError, IndexError):
             pass
 
-    if status:
-        stmt = stmt.where(Plot.status == status)
+    status_values = _status_values(status)
+    if status_values:
+        stmt = stmt.where(Plot.status.in_(status_values))
     if permitted_use:
         stmt = stmt.where(Plot.permitted_use.ilike(f"%{permitted_use}%"))
     if category:
@@ -251,12 +319,15 @@ async def plots_geojson(
                 "cadastral_number": p.cadastral_number,
                 "settlement_id": str(p.settlement_id) if p.settlement_id else None,
                 "price": p.price,
+                "price_per_hectare": p.price_per_hectare,
                 "area_m2": p.area_m2,
+                "address": p.address,
                 "permitted_use": p.permitted_use,
                 "center_lng": center_lng,
                 "center_lat": center_lat,
                 "status": p.status.value if isinstance(p.status, PlotStatus) else p.status,
                 "title": p.title,
+                "description": p.description,
                 "object_type": p.object_type,
                 "land_plot_type": p.land_plot_type,
                 "registration_date": p.registration_date,
@@ -264,6 +335,7 @@ async def plots_geojson(
                 "cad_unit": p.cad_unit,
                 "category": p.category,
                 "cadastral_value": p.cadastral_value,
+                "vri_code": normalize_vri(p.permitted_use),
             },
         })
 
@@ -311,6 +383,7 @@ async def plot_tiles(
     permitted_use: str | None = None,
     category: str | None = None,
     cad_unit: str | None = None,
+    region: str | None = None,
     session: AsyncSession = Depends(get_session),
     tenant_id: UUID | None = Depends(get_tenant_scope_optional),
 ):
@@ -322,8 +395,8 @@ async def plot_tiles(
     normalized_query = _normalized_search_query(query)
     settlement_uuid = _parse_uuid(settlement_id, "settlement_id") if settlement_id else None
     cache_key = (
-        f"landsearch:tiles:{tenant_cache_part}:{z}/{x}/{y}:"
-        f"{normalized_query or ''}:{settlement_uuid or ''}:{status or ''}:{permitted_use or ''}:{category or ''}:{cad_unit or ''}"
+        f"landsearch:tiles:{tenant_cache_part}:boundary-covered-v2:{z}/{x}/{y}:"
+        f"{normalized_query or ''}:{settlement_uuid or ''}:{status or ''}:{permitted_use or ''}:{category or ''}:{cad_unit or ''}:{region or ''}"
     )
 
     if cache:
@@ -338,19 +411,32 @@ async def plot_tiles(
 
     where_clauses = ["p.geometry IS NOT NULL", "p.is_active = true",
                      "ST_Intersects(ST_Transform(p.geometry, 3857), ST_TileEnvelope(:z, :x, :y))"]
-    params = {"z": z, "x": x, "y": y}
+    params = {"z": z, "x": x, "y": y, "tenant_id": tenant_id}
     if tenant_id is None:
         where_clauses.append("false")
     else:
         where_clauses.append("p.tenant_id = :tenant_id")
-        params["tenant_id"] = tenant_id
-
+    boundary_join = ""
     if settlement_uuid:
-        where_clauses.append("p.settlement_id = :settlement_id")
+        boundary_join = """
+        JOIN settlements boundary
+          ON boundary.id = :settlement_id
+         AND boundary.tenant_id = :tenant_id
+         AND boundary.geometry IS NOT NULL
+        """
+        where_clauses.append("ST_Intersects(p.geometry, boundary.geometry)")
         params["settlement_id"] = settlement_uuid
-    if status:
+    status_values = _status_values(status)
+    if len(status_values) == 1:
         where_clauses.append("p.status = :status")
-        params["status"] = status
+        params["status"] = status_values[0]
+    elif status_values:
+        status_params = []
+        for index, status_value in enumerate(status_values):
+            param_name = f"status_{index}"
+            status_params.append(f":{param_name}")
+            params[param_name] = status_value
+        where_clauses.append(f"p.status IN ({', '.join(status_params)})")
     if permitted_use:
         where_clauses.append("p.permitted_use ILIKE :permitted_use")
         params["permitted_use"] = f"%{permitted_use}%"
@@ -360,6 +446,12 @@ async def plot_tiles(
     if cad_unit:
         where_clauses.append("p.cad_unit LIKE :cad_unit")
         params["cad_unit"] = f"{cad_unit}%"
+    normalized_region = region.strip() if region else None
+    if normalized_region:
+        # NSPD's cadastral zone prefix is the reliable region key. Settlement
+        # metadata remains a fallback for imported records with non-standard numbers.
+        where_clauses.append("(p.cadastral_number LIKE '16:%' OR s.region = :region)")
+        params["region"] = normalized_region
     if normalized_query:
         where_clauses.append(
             "(p.cadastral_number ILIKE :query OR p.address ILIKE :query "
@@ -429,6 +521,7 @@ async def plot_tiles(
             ST_AsMVTGeom(ST_Transform(p.geometry, 3857), ST_TileEnvelope(:z, :x, :y), 4096, 256, true) AS mvtgeom,
             p.id::text AS id,
             p.cadastral_number AS cad_num,
+            regexp_replace(p.cadastral_number, '^.*:', '') AS cad_num_short,
             p.status::text AS status,
             p.price AS price,
             p.area_m2 AS area,
@@ -440,6 +533,7 @@ async def plot_tiles(
             p.cadastral_value AS cad_value,
             p.settlement_id::text AS settlement_id
         FROM plots p
+        {boundary_join}
         LEFT JOIN settlements s ON p.settlement_id = s.id
         WHERE {' AND '.join(where_clauses)}
     ) AS mvt
@@ -459,6 +553,56 @@ async def plot_tiles(
         media_type="application/vnd.mapbox-vector-tile",
         headers={"Cache-Control": "public, max-age=300"},
     )
+
+
+@router.get("/tiles/nspd/{layer_id}/{z}/{x}/{y}.png")
+async def nspd_cadastre_tile(layer_id: int, z: int, x: int, y: int):
+    """Proxy official NSPD polygon WMS tiles for the regional map overlay."""
+    from fastapi.responses import Response
+
+    if layer_id not in NSPD_WMS_LAYERS:
+        raise BadRequestException("Unsupported NSPD cadastral layer")
+
+    cache = await _get_redis()
+    cache_key = f"landsearch:nspd:wms:{layer_id}:{z}:{x}:{y}:v1"
+    try:
+        if cache:
+            try:
+                cached = await cache.get(cache_key)
+                if cached:
+                    return Response(
+                        content=base64.b64decode(cached),
+                        media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300, stale-while-revalidate=600"},
+                    )
+            except Exception:
+                pass
+
+        async with _nspd_wms_semaphore:
+            tile = await asyncio.to_thread(fetch_nspd_wms_tile, layer_id, z, x, y)
+
+        if cache:
+            try:
+                await cache.setex(cache_key, 600, base64.b64encode(tile).decode("ascii"))
+            except Exception:
+                pass
+
+        return Response(
+            content=tile,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=300, stale-while-revalidate=600"},
+        )
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    except Exception as exc:
+        logger.warning("NSPD WMS tile failed layer=%s z=%s x=%s y=%s: %s", layer_id, z, x, y, exc)
+        raise BadRequestException("NSPD cadastral layer is temporarily unavailable") from exc
+    finally:
+        if cache:
+            try:
+                await cache.aclose()
+            except Exception:
+                pass
 
 
 @router.get("/stats", response_model=PlotStatsResponse)
@@ -664,30 +808,91 @@ async def update_plot(
         plot.price_per_hectare = plot.price / (plot.area_m2 / 10000)
 
     await session.commit()
+    if "status" in update_data:
+        await _invalidate_plot_map_cache(current_user.tenant_id)
     await session.refresh(plot)
     return plot_to_response(plot)
 
 
-@router.delete("/bulk", status_code=200)
-async def bulk_delete_plots(
-    plot_ids: list[str] = Body(..., embed=False),
-    current_user: User = Depends(get_current_user),
+@router.patch("/bulk/status")
+async def bulk_update_plot_status(
+    body: BulkPlotStatusUpdate,
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
-    try:
-        parsed_plot_ids = [_parse_uuid(pid, "plot_id") for pid in plot_ids]
-    except BadRequestException:
-        raise
-    result = await session.execute(
-        select(Plot).where(
+    if body.all_plots:
+        stmt = select(Plot).where(
+            Plot.tenant_id == current_user.tenant_id,
+            Plot.is_active,
+        )
+        stmt = _apply_plot_search(stmt, body.query)
+    else:
+        parsed_plot_ids = [_parse_uuid(plot_id, "plot_id") for plot_id in body.plot_ids or []]
+        stmt = select(Plot).where(
             Plot.id.in_(parsed_plot_ids),
             Plot.tenant_id == current_user.tenant_id,
+            Plot.is_active,
         )
-    )
+
+    if body.filter_status is not None:
+        stmt = stmt.where(Plot.status == body.filter_status)
+
+    result = await session.execute(stmt)
+    plots = result.scalars().all()
+    status_value = body.status.value
+    changed = 0
+
+    from ...models import PlotStatusHistory
+
+    for plot in plots:
+        current_status_value = plot.status.value if isinstance(plot.status, PlotStatus) else plot.status
+        if current_status_value == status_value:
+            continue
+        session.add(PlotStatusHistory(
+            plot_id=plot.id,
+            old_status=current_status_value,
+            new_status=status_value,
+            changed_by=current_user.id,
+        ))
+        plot.status = body.status
+        changed += 1
+
+    await session.commit()
+    if changed:
+        await _invalidate_plot_map_cache(current_user.tenant_id)
+    return {"updated": changed, "status": status_value}
+
+
+@router.delete("/bulk", status_code=200)
+async def bulk_delete_plots(
+    body: BulkPlotDelete,
+    current_user: User = Depends(require_role(UserRole.admin)),
+    session: AsyncSession = Depends(get_session),
+):
+    if body.all_plots:
+        stmt = select(Plot).where(
+            Plot.tenant_id == current_user.tenant_id,
+            Plot.is_active,
+        )
+        stmt = _apply_plot_search(stmt, body.query)
+    else:
+        parsed_plot_ids = [_parse_uuid(plot_id, "plot_id") for plot_id in body.plot_ids or []]
+        stmt = select(Plot).where(
+            Plot.id.in_(parsed_plot_ids),
+            Plot.tenant_id == current_user.tenant_id,
+            Plot.is_active,
+        )
+
+    if body.filter_status is not None:
+        stmt = stmt.where(Plot.status == body.filter_status)
+
+    result = await session.execute(stmt)
     plots = result.scalars().all()
     for plot in plots:
         plot.is_active = False
     await session.commit()
+    if plots:
+        await _invalidate_plot_map_cache(current_user.tenant_id)
     return {"deleted": len(plots)}
 
 

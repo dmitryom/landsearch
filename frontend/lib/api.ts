@@ -38,8 +38,12 @@ export interface Settlement {
   name: string
   description?: string
   region?: string
+  address?: string
   district?: string
   geometry?: Record<string, unknown>
+  boundary_source?: 'nspd' | 'manual_polygon' | 'manual_radius' | null
+  boundary_radius_m?: number | null
+  boundary_updated_at?: string | null
   plots?: Plot[]
   stats?: {
     total_plots: number
@@ -49,8 +53,30 @@ export interface Settlement {
     sold_plots: number
     total_area_ha: number
     total_price: number
-    avg_price_per_ha: number
+  avg_price_per_ha: number
   }
+}
+
+export interface SettlementCreate {
+  name: string
+  description?: string
+  address?: string
+  region?: string
+  district?: string
+}
+
+export type SettlementBoundaryMode = 'polygon' | 'radius' | 'clear'
+
+export interface SettlementBoundaryPayload {
+  mode: SettlementBoundaryMode
+  geometry?: Record<string, unknown> | null
+  radius_m?: number | null
+}
+
+export interface SettlementBoundaryPreview {
+  plot_count: number
+  by_status: Record<Plot['status'], number>
+  linked_plot_count?: number
 }
 
 export interface PlotListResponse {
@@ -216,8 +242,16 @@ export const api = {
       request<Plot>(`/plots/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     delete: (id: string) =>
       request<void>(`/plots/${id}`, { method: 'DELETE' }),
-    bulkDelete: (ids: string[]) =>
-      request<{ deleted: number }>('/plots/bulk', { method: 'DELETE', body: JSON.stringify(ids) }),
+    bulkDelete: (ids: string[], options?: { all_plots?: boolean; query?: string; filter_status?: Plot["status"] }) =>
+      request<{ deleted: number }>('/plots/bulk', {
+        method: 'DELETE',
+        body: JSON.stringify({ plot_ids: ids.length ? ids : undefined, ...options }),
+      }),
+    bulkUpdateStatus: (ids: string[], status: Plot['status'], options?: { all_plots?: boolean; query?: string; filter_status?: Plot['status'] }) =>
+      request<{ updated: number; status: Plot['status'] }>('/plots/bulk/status', {
+        method: 'PATCH',
+        body: JSON.stringify({ plot_ids: ids.length ? ids : undefined, status, ...options }),
+      }),
     enrich: (id: string) =>
       request<Plot>(`/plots/${id}/enrich`, { method: 'POST' }),
     batchEnrich: () =>
@@ -227,7 +261,29 @@ export const api = {
   },
   settlements: {
     list: () => request<Settlement[]>('/settlements'),
-    get: (id: string) => request<Settlement>(`/settlements/${id}`),
+    bulkCreate: (items: SettlementCreate[]) =>
+      request<{ created: number; skipped: number; items: Settlement[] }>('/settlements/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }),
+    get: (id: string, options?: { include_plots?: boolean }) => {
+      const qs = options?.include_plots === false ? '?include_plots=false' : ''
+      return request<Settlement>(`/settlements/${id}${qs}`)
+    },
+    previewBoundary: (id: string, data: SettlementBoundaryPayload) =>
+      request<SettlementBoundaryPreview>(`/settlements/${id}/boundary/preview`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateBoundary: (id: string, data: SettlementBoundaryPayload) =>
+      request<Settlement & SettlementBoundaryPreview>(`/settlements/${id}/boundary`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    importNspdPlots: (id: string) =>
+      request<{ found: number; imported: number; updated: number; skipped: number }>('/settlements/' + id + '/nspd-import', {
+        method: 'POST',
+      }),
     analyze: (id: string, minArea?: number, maxArea?: number) => {
       const params = new URLSearchParams()
       if (minArea) params.set('min_area', String(minArea))
@@ -241,8 +297,8 @@ export const api = {
     restrictions: () => request<RestrictionLayersInfo>('/layers/restrictions'),
   },
   search: {
-    suggest: (q: string) =>
-      request<{ results: SearchSuggestion[] }>(`/search/suggest?q=${encodeURIComponent(q)}&limit=10`),
+    suggest: (q: string, signal?: AbortSignal) =>
+      request<{ results: SearchSuggestion[] }>(`/search/suggest?q=${encodeURIComponent(q)}&limit=10`, { signal }),
   },
   auth: {
     login: (email: string, password: string) =>

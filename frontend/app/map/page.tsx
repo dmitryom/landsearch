@@ -5,11 +5,14 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import MapView from '@/components/MapView'
 import LayerSwitcher from '@/components/LayerSwitcher'
+import { DEFAULT_BASE_LAYER_ID } from '@/lib/constants'
 
 export default function MapPage() {
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const [baseLayer, setBaseLayer] = useState('osm')
+  const [baseLayer, setBaseLayer] = useState(DEFAULT_BASE_LAYER_ID)
   const [filters, setFilters] = useState<Record<string, string>>({})
+  const [mapReady, setMapReady] = useState(false)
+  const [showTatarstanCadastre, setShowTatarstanCadastre] = useState(false)
 
   return (
     <div className="h-screen flex flex-col">
@@ -32,10 +35,22 @@ export default function MapPage() {
           <option value="booked">Забронирован</option>
           <option value="sold">Продан</option>
         </select>
-        <LayerSwitcher map={mapRef.current} currentLayer={baseLayer} onChange={setBaseLayer} filters={filters} />
+        <LayerSwitcher
+          map={mapReady ? mapRef.current : null}
+          currentLayer={baseLayer}
+          onChange={setBaseLayer}
+          filters={filters}
+          showTatarstanCadastre={showTatarstanCadastre}
+          onTatarstanCadastreChange={setShowTatarstanCadastre}
+        />
       </div>
       <div className="flex-1 relative">
-        <MapView mapRef={mapRef} filters={filters} />
+        <MapView
+          mapRef={mapRef}
+          filters={filters}
+          showTatarstanCadastre={showTatarstanCadastre}
+          onMapReady={() => setMapReady(true)}
+        />
       </div>
     </div>
   )

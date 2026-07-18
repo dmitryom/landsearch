@@ -1,20 +1,24 @@
 import asyncio
 import logging
+import math
 import random
 import time
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from geoalchemy2.shape import from_shape
+from fastapi.encoders import jsonable_encoder
 from shapely.geometry import mapping
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models import CadastreCache, Plot
+from ..models import CadastreCache, Plot, PlotStatus
 
 logger = logging.getLogger(__name__)
 
 _NSPD_AVAILABLE = False
+Nspd = None
 try:
     from pynspd import Nspd
     from pynspd.schemas.feature import NspdFeature
@@ -27,8 +31,42 @@ _BASE_COOLDOWN = 8.0
 _MAX_COOLDOWN = 90.0
 _DEFAULT_ATTEMPTS = 4
 
+# NSPD is authoritative for cadastral attributes. Commercial listing fields
+# such as price, sale status, title and description stay tenant-managed.
+_NSPD_FIELD_MAP = {
+    "cadastral_number": "cad_num",
+    "address": "address",
+    "area_m2": "area_m2",
+    "category": "category",
+    "permitted_use": "permitted_use",
+    "cadastral_value": "cost_value",
+    "cad_unit": "cad_unit",
+    "cad_status": "cad_status",
+    "object_type": "object_type",
+    "land_plot_type": "land_plot_type",
+    "registration_date": "registration_date",
+    "ownership_form": "ownership_form",
+}
+
 _cooldown = 0.0
 _cooldown_until = 0.0
+
+
+@dataclass(frozen=True)
+class NspdWmsLayer:
+    layer_id: int
+    title: str
+    geometry_type: str = "Polygon"
+
+
+# These are the official NSPD polygon layers used by the regional cadastral
+# overlay. They are intentionally separate from tenant-owned Plot records.
+NSPD_WMS_LAYERS = {
+    36048: NspdWmsLayer(36048, "Земельные участки ЕГРН"),
+    36049: NspdWmsLayer(36049, "Здания ЕГРН"),
+    36328: NspdWmsLayer(36328, "Сооружения ЕГРН"),
+    36329: NspdWmsLayer(36329, "Объекты незавершённого строительства ЕГРН"),
+}
 
 
 def _wait_cooldown() -> None:
@@ -51,6 +89,64 @@ def _register_success() -> None:
     if _cooldown < 0.5:
         _cooldown = 0.0
     _cooldown_until = 0.0
+
+
+def _tile_bbox_web_mercator(z: int, x: int, y: int) -> str:
+    """Return a Web Mercator bbox for an XYZ tile without extra GIS deps."""
+    if z < 0 or z > 22:
+        raise ValueError("Invalid tile zoom")
+    limit = 2**z
+    if x < 0 or y < 0 or x >= limit or y >= limit:
+        raise ValueError("Invalid tile coordinates")
+
+    earth_radius = 6378137.0
+    world_extent = math.pi * earth_radius
+
+    def project(lon: float, lat: float) -> tuple[float, float]:
+        x_m = math.radians(lon) * earth_radius
+        y_m = math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)) * earth_radius
+        return x_m, y_m
+
+    n = float(limit)
+    west = x / n * 360.0 - 180.0
+    east = (x + 1) / n * 360.0 - 180.0
+    north = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
+    south = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * (y + 1) / n))))
+    min_x, min_y = project(west, south)
+    max_x, max_y = project(east, north)
+    min_x = max(-world_extent, min(world_extent, min_x))
+    min_y = max(-world_extent, min(world_extent, min_y))
+    max_x = max(-world_extent, min(world_extent, max_x))
+    max_y = max(-world_extent, min(world_extent, max_y))
+    return ",".join(f"{value:.6f}" for value in (min_x, min_y, max_x, max_y))
+
+
+def fetch_nspd_wms_tile(layer_id: int, z: int, x: int, y: int, tile_size: int = 256) -> bytes:
+    """Fetch one authoritative NSPD polygon tile as a transparent PNG."""
+    if layer_id not in NSPD_WMS_LAYERS:
+        raise ValueError(f"Unsupported NSPD layer: {layer_id}")
+    if not _NSPD_AVAILABLE or Nspd is None:
+        raise RuntimeError("pynspd is not available")
+
+    params = {
+        "SERVICE": "WMS",
+        "VERSION": "1.3.0",
+        "REQUEST": "GetMap",
+        "FORMAT": "image/png",
+        "TRANSPARENT": "true",
+        "STYLES": "",
+        "LAYERS": str(layer_id),
+        "CRS": "EPSG:3857",
+        "BBOX": _tile_bbox_web_mercator(z, x, y),
+        "WIDTH": tile_size,
+        "HEIGHT": tile_size,
+    }
+    with Nspd(client_timeout=30, client_retries=2) as nspd:
+        response = nspd.safe_request("get", f"/api/aeggis/v3/{layer_id}/wms", params=params)
+    content_type = str(getattr(response, "headers", {}).get("content-type", "image/png")).lower()
+    if "image/png" not in content_type:
+        raise RuntimeError(f"NSPD returned unexpected content type: {content_type}")
+    return response.content
 
 
 def _find_with_retry(cn: str, attempts: int = _DEFAULT_ATTEMPTS) -> NspdFeature | None:
@@ -223,65 +319,38 @@ async def enrich_from_cadastre(session: AsyncSession, plot: Plot) -> bool:
     return True
 
 
-def _apply_enrichment(plot: Plot, data: dict, geom):
-    """Apply enriched data to a Plot object (only fill missing fields)."""
-    if data.get("address") and not plot.address:
-        plot.address = data["address"]
-    if data.get("area_m2") and not plot.area_m2:
-        plot.area_m2 = data["area_m2"]
-    if data.get("category") and not plot.category:
-        plot.category = data["category"]
-    if data.get("permitted_use") and not plot.permitted_use:
-        plot.permitted_use = data["permitted_use"]
-    if data.get("cost_value") and not plot.cadastral_value:
-        plot.cadastral_value = data["cost_value"]
-    if data.get("cad_unit") and not plot.cad_unit:
-        plot.cad_unit = data["cad_unit"]
-    if data.get("cad_status") and not plot.cad_status:
-        plot.cad_status = data["cad_status"]
-    if data.get("object_type") and not plot.object_type:
-        plot.object_type = data["object_type"]
-    if data.get("land_plot_type") and not plot.land_plot_type:
-        plot.land_plot_type = data["land_plot_type"]
-    if data.get("registration_date") and not plot.registration_date:
-        plot.registration_date = data["registration_date"]
-    if data.get("ownership_form") and not plot.ownership_form:
-        plot.ownership_form = data["ownership_form"]
+def _apply_nspd_data(plot: Plot, data: dict, geom) -> None:
+    """Apply the authoritative NSPD snapshot while preserving listing data."""
+    metadata = dict(plot.plot_metadata or {})
+    metadata["nspd"] = jsonable_encoder(data)
+    plot.plot_metadata = metadata
+
+    for plot_field, nspd_field in _NSPD_FIELD_MAP.items():
+        value = data.get(nspd_field)
+        if value is None:
+            continue
+        if isinstance(value, (date, datetime)):
+            value = value.isoformat()
+        column_type = Plot.__table__.columns[plot_field].type
+        max_length = getattr(column_type, "length", None)
+        if isinstance(value, str) and max_length is not None:
+            value = value[:max_length]
+        setattr(plot, plot_field, value)
     if geom is not None:
         plot.geometry = geom
+    plot.imported_from = "nspd"
     if plot.area_m2 and plot.price:
         plot.price_per_hectare = plot.price / (plot.area_m2 / 10000)
+
+
+def _apply_enrichment(plot: Plot, data: dict, geom):
+    """Apply a fresh NSPD response to a Plot."""
+    _apply_nspd_data(plot, data, geom)
 
 
 def _apply_cache(plot: Plot, cache: CadastreCache) -> bool:
     """Apply cached cadastre data to a Plot."""
-    data = cache.data
-    if data.get("address") and not plot.address:
-        plot.address = data["address"]
-    if data.get("area_m2") and not plot.area_m2:
-        plot.area_m2 = data["area_m2"]
-    if data.get("category") and not plot.category:
-        plot.category = data["category"]
-    if data.get("permitted_use") and not plot.permitted_use:
-        plot.permitted_use = data["permitted_use"]
-    if data.get("cost_value") and not plot.cadastral_value:
-        plot.cadastral_value = data["cost_value"]
-    if data.get("cad_unit") and not plot.cad_unit:
-        plot.cad_unit = data["cad_unit"]
-    if data.get("cad_status") and not plot.cad_status:
-        plot.cad_status = data["cad_status"]
-    if data.get("object_type") and not plot.object_type:
-        plot.object_type = data["object_type"]
-    if data.get("land_plot_type") and not plot.land_plot_type:
-        plot.land_plot_type = data["land_plot_type"]
-    if data.get("registration_date") and not plot.registration_date:
-        plot.registration_date = data["registration_date"]
-    if data.get("ownership_form") and not plot.ownership_form:
-        plot.ownership_form = data["ownership_form"]
-    if cache.geometry:
-        plot.geometry = cache.geometry
-    if plot.area_m2 and plot.price:
-        plot.price_per_hectare = plot.price / (plot.area_m2 / 10000)
+    _apply_nspd_data(plot, cache.data, cache.geometry)
     return True
 
 
@@ -348,3 +417,74 @@ async def lookup_cadastre(cadastral_number: str) -> dict[str, Any] | None:
         "center_lng": centroid_lng,
         "center_lat": centroid_lat,
     }
+
+
+async def import_landplots_in_contour(
+    session: AsyncSession,
+    tenant_id,
+    settlement_id,
+    contour,
+) -> dict[str, int]:
+    """Import official NSPD land plots intersecting a saved settlement boundary."""
+    if not _NSPD_AVAILABLE or Nspd is None:
+        raise RuntimeError("pynspd is not available")
+
+    def fetch():
+        _wait_cooldown()
+        try:
+            with Nspd(client_timeout=30, client_retries=0) as nspd:
+                features = nspd.search_landplots_in_contour(contour)
+            _register_success()
+            return features or []
+        except Exception as exc:
+            if _is_blocked(exc):
+                _register_block()
+            raise RuntimeError("NSPD contour import is temporarily unavailable") from exc
+
+    features = await asyncio.to_thread(fetch)
+    imported = updated = skipped = 0
+    candidates: list[tuple[str, dict, object]] = []
+    for feature in features:
+        data = _extract_feature_data(feature)
+        cadastral_number = str((data or {}).get("cad_num") or "").strip()
+        if not cadastral_number:
+            skipped += 1
+            continue
+        candidates.append((cadastral_number, data or {}, _extract_geometry(feature)))
+
+    cadastral_numbers = list({number for number, _, _ in candidates})
+    existing_by_number: dict[str, Plot] = {}
+    if cadastral_numbers:
+        existing_result = await session.execute(
+            select(Plot).where(
+                Plot.tenant_id == tenant_id,
+                Plot.cadastral_number.in_(cadastral_numbers),
+            )
+        )
+        existing_by_number = {plot.cadastral_number: plot for plot in existing_result.scalars()}
+
+    seen_numbers: set[str] = set()
+    for cadastral_number, data, geometry in candidates:
+        if cadastral_number in seen_numbers:
+            skipped += 1
+            continue
+        seen_numbers.add(cadastral_number)
+        plot = existing_by_number.get(cadastral_number)
+        if plot is None:
+            plot = Plot(
+                tenant_id=tenant_id,
+                settlement_id=settlement_id,
+                cadastral_number=cadastral_number,
+                status=PlotStatus.free,
+                imported_from="nspd",
+            )
+            session.add(plot)
+            existing_by_number[cadastral_number] = plot
+            imported += 1
+        else:
+            if plot.settlement_id is None:
+                plot.settlement_id = settlement_id
+            updated += 1
+        plot.is_active = True
+        _apply_nspd_data(plot, data, geometry)
+    return {"found": len(features), "imported": imported, "updated": updated, "skipped": skipped}

@@ -3,10 +3,18 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { BASE_LAYERS } from '@/lib/constants'
+import type { Plot } from '@/lib/api'
+import { BASE_LAYERS, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { log } from '@/lib/logger'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
-import { addPlotTileLayers, updatePlotTileUrl } from '@/lib/plot-map-layers'
+import { addPlotTileLayers, DEFAULT_NSPD_LAYER_VISIBILITY, setTatarstanCadastreLayer, updatePlotTileUrl, type NspdLayerVisibility } from '@/lib/plot-map-layers'
+import MapOrientationControls from '@/components/MapOrientationControls'
+
+const SELECTED_PLOT_SOURCE_ID = 'selected-plot'
+const SELECTED_PLOT_FILL_ID = 'selected-plot-fill'
+const SELECTED_PLOT_BORDER_ID = 'selected-plot-border'
+const SETTLEMENT_BOUNDARY_SOURCE_ID = 'selected-settlement-boundary'
+const SETTLEMENT_BOUNDARY_LAYER_ID = 'selected-settlement-boundary'
 
 function detectWebGL(): string {
   try {
@@ -43,11 +51,35 @@ function getFitBoundsMaxZoom(bounds: maplibregl.LngLatBoundsLike): number {
   const latitudeSpan = Math.abs(Number(northEast[1]) - Number(southWest[1]))
   if (!Number.isFinite(longitudeSpan) || !Number.isFinite(latitudeSpan)) return 15
 
-  return longitudeSpan < 0.01 && latitudeSpan < 0.01 ? 17 : 15
+  return longitudeSpan < 0.01 && latitudeSpan < 0.01 ? 16 : 15
 }
 
 export interface MapViewHandle {
   flyTo: (lng: number, lat: number, zoom?: number) => void
+}
+
+type SelectedPlot = Partial<Plot> & { id?: string }
+
+function selectedPlotData(plot: SelectedPlot) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: [{
+      type: 'Feature' as const,
+      geometry: plot.geometry,
+      properties: { id: plot.id, status: plot.status },
+    }],
+  }
+}
+
+function settlementBoundaryData(geometry: Record<string, unknown>) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: [{
+      type: 'Feature' as const,
+      geometry,
+      properties: {},
+    }],
+  }
 }
 
 export default function MapView({
@@ -56,25 +88,125 @@ export default function MapView({
   mapRef,
   filters = {},
   resultBounds = null,
+  boundaryGeometry = null,
+  selectedPlot = null,
+  showTatarstanCadastre = false,
+  nspdLayerVisibility = DEFAULT_NSPD_LAYER_VISIBILITY,
+  nspdOpacity = 1,
+  resultTrayHeight = 248,
 }: {
   onMapReady?: (map: maplibregl.Map) => void
   onPlotClick?: (props: Record<string, any>) => void
   mapRef?: React.MutableRefObject<maplibregl.Map | null>
   filters?: Record<string, string>
   resultBounds?: maplibregl.LngLatBoundsLike | null
+  boundaryGeometry?: Record<string, unknown> | null
+  selectedPlot?: SelectedPlot | null
+  showTatarstanCadastre?: boolean
+  nspdLayerVisibility?: NspdLayerVisibility
+  nspdOpacity?: number
+  resultTrayHeight?: number
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const internalMapRef = useRef<maplibregl.Map | null>(null)
   const mapReadyRef = useRef(false)
   const onMapReadyRef = useRef(onMapReady)
   const onPlotClickRef = useRef(onPlotClick)
+  const selectedPlotRef = useRef<SelectedPlot | null>(selectedPlot)
+  const boundaryGeometryRef = useRef<Record<string, unknown> | null>(boundaryGeometry)
+  const selectedMarkerRef = useRef<maplibregl.Marker | null>(null)
+  const showTatarstanCadastreRef = useRef(showTatarstanCadastre)
+  const nspdLayerVisibilityRef = useRef(nspdLayerVisibility)
+  const nspdOpacityRef = useRef(nspdOpacity)
   const tileUrl = useMemo(() => buildPlotTileUrl(filters), [filters])
   const tileUrlRef = useRef(tileUrl)
   const [mapLoaded, setMapLoaded] = useState(false)
 
   useEffect(() => { onMapReadyRef.current = onMapReady }, [onMapReady])
   useEffect(() => { onPlotClickRef.current = onPlotClick }, [onPlotClick])
+  useEffect(() => { selectedPlotRef.current = selectedPlot }, [selectedPlot])
+  useEffect(() => { boundaryGeometryRef.current = boundaryGeometry }, [boundaryGeometry])
+  useEffect(() => { showTatarstanCadastreRef.current = showTatarstanCadastre }, [showTatarstanCadastre])
+  useEffect(() => { nspdLayerVisibilityRef.current = nspdLayerVisibility }, [nspdLayerVisibility])
+  useEffect(() => { nspdOpacityRef.current = nspdOpacity }, [nspdOpacity])
   useEffect(() => { tileUrlRef.current = tileUrl }, [tileUrl])
+
+  const removeSelectedPlotLayers = useCallback((map: maplibregl.Map) => {
+    for (const layerId of [SELECTED_PLOT_BORDER_ID, SELECTED_PLOT_FILL_ID]) {
+      if (map.getLayer(layerId)) map.removeLayer(layerId)
+    }
+    if (map.getSource(SELECTED_PLOT_SOURCE_ID)) map.removeSource(SELECTED_PLOT_SOURCE_ID)
+  }, [])
+
+  const renderSelectedPlot = useCallback((map: maplibregl.Map, plot: SelectedPlot | null) => {
+    if (!map.isStyleLoaded()) return
+    if (!plot?.geometry) {
+      removeSelectedPlotLayers(map)
+      return
+    }
+
+    const status = String(plot.status || '')
+    const statusColor = STATUS_COLORS[status] || '#237a63'
+    const source = map.getSource(SELECTED_PLOT_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+    if (source) source.setData(selectedPlotData(plot) as any)
+    else map.addSource(SELECTED_PLOT_SOURCE_ID, { type: 'geojson', data: selectedPlotData(plot) as any })
+
+    if (!map.getLayer(SELECTED_PLOT_FILL_ID)) {
+      map.addLayer({
+        id: SELECTED_PLOT_FILL_ID,
+        type: 'fill',
+        source: SELECTED_PLOT_SOURCE_ID,
+        paint: { 'fill-color': statusColor, 'fill-opacity': 0.26 },
+      })
+    } else {
+      map.setPaintProperty(SELECTED_PLOT_FILL_ID, 'fill-color', statusColor)
+    }
+
+    if (!map.getLayer(SELECTED_PLOT_BORDER_ID)) {
+      map.addLayer({
+        id: SELECTED_PLOT_BORDER_ID,
+        type: 'line',
+        source: SELECTED_PLOT_SOURCE_ID,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#3269a5', 'line-width': 4, 'line-opacity': 1 },
+      })
+    } else {
+      map.setPaintProperty(SELECTED_PLOT_BORDER_ID, 'line-color', '#3269a5')
+    }
+  }, [removeSelectedPlotLayers])
+
+  const removeBoundaryLayer = useCallback((map: maplibregl.Map) => {
+    if (map.getLayer(SETTLEMENT_BOUNDARY_LAYER_ID)) map.removeLayer(SETTLEMENT_BOUNDARY_LAYER_ID)
+    if (map.getSource(SETTLEMENT_BOUNDARY_SOURCE_ID)) map.removeSource(SETTLEMENT_BOUNDARY_SOURCE_ID)
+  }, [])
+
+  const renderBoundary = useCallback((map: maplibregl.Map, geometry: Record<string, unknown> | null) => {
+    if (!map.isStyleLoaded()) return
+    if (!geometry) {
+      removeBoundaryLayer(map)
+      return
+    }
+
+    const data = settlementBoundaryData(geometry) as any
+    const source = map.getSource(SETTLEMENT_BOUNDARY_SOURCE_ID) as maplibregl.GeoJSONSource | undefined
+    if (source) source.setData(data)
+    else map.addSource(SETTLEMENT_BOUNDARY_SOURCE_ID, { type: 'geojson', data })
+
+    if (!map.getLayer(SETTLEMENT_BOUNDARY_LAYER_ID)) {
+      map.addLayer({
+        id: SETTLEMENT_BOUNDARY_LAYER_ID,
+        type: 'line',
+        source: SETTLEMENT_BOUNDARY_SOURCE_ID,
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: {
+          'line-color': '#237a63',
+          'line-width': 3,
+          'line-opacity': 0.9,
+          'line-dasharray': [2, 1],
+        },
+      })
+    }
+  }, [removeBoundaryLayer])
 
   useEffect(() => {
     const map = internalMapRef.current
@@ -82,27 +214,26 @@ export default function MapView({
     const compactViewport = map.getContainer().clientWidth < 768
     map.fitBounds(resultBounds, {
       padding: compactViewport
-        ? { top: 64, right: 32, bottom: 112, left: 32 }
-        : { top: 72, right: 72, bottom: 256, left: 320 },
+        ? { top: 72, right: 32, bottom: selectedPlot ? 280 : Math.min(resultTrayHeight + 32, 420), left: 32 }
+        : { top: 72, right: selectedPlot ? 400 : 72, bottom: Math.min(resultTrayHeight + 32, 560), left: 32 },
       maxZoom: getFitBoundsMaxZoom(resultBounds),
       duration: 700,
     })
-  }, [mapLoaded, resultBounds])
+  }, [mapLoaded, resultBounds, resultTrayHeight, selectedPlot])
 
   const initMapLayers = useCallback((map: maplibregl.Map) => {
     log('map', 'Добавление MVT tile слоёв')
     addPlotTileLayers(map, tileUrlRef.current)
-    map.on('click', 'plots-fill', (e) => {
-      if (e.features?.[0]) onPlotClickRef.current?.(e.features[0].properties as Record<string, any>)
-    })
-    map.on('click', 'plots-points', (e) => {
-      if (e.features?.[0]) onPlotClickRef.current?.(e.features[0].properties as Record<string, any>)
-    })
-    map.on('mouseenter', 'plots-fill', () => { map.getCanvas().style.cursor = 'pointer' })
-    map.on('mouseleave', 'plots-fill', () => { map.getCanvas().style.cursor = '' })
-    map.on('mouseenter', 'plots-points', () => { map.getCanvas().style.cursor = 'pointer' })
-    map.on('mouseleave', 'plots-points', () => { map.getCanvas().style.cursor = '' })
-  }, [])
+    setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
+    renderBoundary(map, boundaryGeometryRef.current)
+    for (const layerId of ['plots-fill', 'plots-point-fallback']) {
+      map.on('click', layerId, (e) => {
+        if (e.features?.[0]) onPlotClickRef.current?.(e.features[0].properties as Record<string, any>)
+      })
+      map.on('mouseenter', layerId, () => { map.getCanvas().style.cursor = 'pointer' })
+      map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = '' })
+    }
+  }, [renderBoundary])
 
   useEffect(() => {
     const map = internalMapRef.current
@@ -132,7 +263,6 @@ export default function MapView({
         log('error', 'MapLibre error', `${e.error?.message || 'unknown'}\nsource=${detail.sourceId || 'none'}\ntile=${detail.tile?.url || 'none'}`)
       })
 
-      map.addControl(new maplibregl.NavigationControl(), 'top-right')
       map.addControl(new maplibregl.FullscreenControl(), 'top-right')
 
       map.on('load', () => {
@@ -143,6 +273,20 @@ export default function MapView({
         initMapLayers(map)
         onMapReadyRef.current?.(map)
       })
+
+      let selectedRestoreTimer: ReturnType<typeof setTimeout> | null = null
+      const restoreSelectedPlot = () => {
+        if (!mounted) return
+        addPlotTileLayers(map, tileUrlRef.current)
+        setTatarstanCadastreLayer(map, showTatarstanCadastreRef.current, nspdLayerVisibilityRef.current, nspdOpacityRef.current)
+        renderBoundary(map, boundaryGeometryRef.current)
+        renderSelectedPlot(map, selectedPlotRef.current)
+        if (selectedRestoreTimer) clearTimeout(selectedRestoreTimer)
+        selectedRestoreTimer = setTimeout(() => {
+          if (mounted) renderSelectedPlot(map, selectedPlotRef.current)
+        }, 500)
+      }
+      map.on('style.load', restoreSelectedPlot)
 
       map.on('sourcedata', (e) => {
         if (e.isSourceLoaded) log('map', 'Source loaded', e.sourceId)
@@ -163,6 +307,10 @@ export default function MapView({
       return () => {
         mounted = false
         clearTimeout(fallback)
+        if (selectedRestoreTimer) clearTimeout(selectedRestoreTimer)
+        map.off('style.load', restoreSelectedPlot)
+        selectedMarkerRef.current?.remove()
+        selectedMarkerRef.current = null
         map.remove()
         internalMapRef.current = null
         mapReadyRef.current = false
@@ -173,7 +321,51 @@ export default function MapView({
       mounted = false
       onMapReadyRef.current?.(null as any)
     }
-  }, [initMapLayers, mapRef])
+  }, [initMapLayers, mapRef, renderBoundary, renderSelectedPlot])
 
-  return <div ref={containerRef} className="w-full h-full" />
+  useEffect(() => {
+    const map = internalMapRef.current
+    if (!map || !mapLoaded) return
+    renderBoundary(map, boundaryGeometry)
+  }, [boundaryGeometry, mapLoaded, renderBoundary])
+
+  useEffect(() => {
+    const map = internalMapRef.current
+    if (!map || !mapLoaded) return
+    setTatarstanCadastreLayer(map, showTatarstanCadastre, nspdLayerVisibility, nspdOpacity)
+  }, [mapLoaded, nspdLayerVisibility, nspdOpacity, showTatarstanCadastre])
+
+  useEffect(() => {
+    const map = internalMapRef.current
+    if (!map || !mapLoaded) return
+
+    selectedMarkerRef.current?.remove()
+    selectedMarkerRef.current = null
+    renderSelectedPlot(map, selectedPlot)
+
+    const lng = Number(selectedPlot?.center_lng)
+    const lat = Number(selectedPlot?.center_lat)
+    if (!selectedPlot || !Number.isFinite(lng) || !Number.isFinite(lat)) return
+
+    const status = String(selectedPlot.status || '')
+    const statusColor = STATUS_COLORS[status] || '#237a63'
+    const statusLabel = STATUS_LABELS[status] || status || 'Статус не указан'
+    const marker = new maplibregl.Marker({ color: statusColor })
+      .setLngLat([lng, lat])
+      .addTo(map)
+    marker.getElement().setAttribute(
+      'aria-label',
+      `Участок ${selectedPlot.cadastral_number || selectedPlot.id || ''} — ${statusLabel}`,
+    )
+    selectedMarkerRef.current = marker
+  }, [mapLoaded, renderSelectedPlot, selectedPlot])
+
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
+      {mapLoaded && internalMapRef.current && (
+        <MapOrientationControls map={internalMapRef.current} hasSelectedPlot={Boolean(selectedPlot)} />
+      )}
+    </div>
+  )
 }

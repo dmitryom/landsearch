@@ -12,7 +12,7 @@ from app.core import rate_limit
 from app.core.config import Settings
 from app.core.exceptions import BadRequestException, NotFoundException, RateLimitException, UnauthorizedException
 from app.core.security import create_refresh_token
-from app.schemas import LoginRequest, PlotCreate
+from app.schemas import LoginRequest, PlotCreate, PlotUpdate
 
 
 class _ScalarResult:
@@ -85,7 +85,18 @@ def test_plot_status_must_be_known_enum_value():
         PlotCreate(cadastral_number="99:99:9999999:1", status="not-a-real-status")
 
 
-def test_settings_ignore_legacy_landsearch_env_keys(tmp_path):
+def test_plot_update_keeps_nspd_fields_read_only():
+    with pytest.raises(ValidationError):
+        PlotUpdate(address="ручное изменение кадастрового адреса")
+
+    update = PlotUpdate(price=2500000, status="reserved")
+    assert update.price == 2500000
+    assert update.status.value == "reserved"
+
+
+def test_settings_ignore_legacy_landsearch_env_keys(tmp_path, monkeypatch):
+    monkeypatch.delenv("LANDSEARCH_DATABASE_URL", raising=False)
+    monkeypatch.delenv("LANDSEARCH_SECRET_KEY", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text(
         "\n".join(
@@ -214,7 +225,8 @@ async def test_plot_tiles_filters_vector_layer_by_settlement_id(monkeypatch):
         tenant_id=tenant_id,
     )
 
-    assert "p.settlement_id = :settlement_id" in session.statement
+    assert "boundary.id = :settlement_id" in session.statement
+    assert "ST_Intersects(p.geometry, boundary.geometry)" in session.statement
     assert session.params["settlement_id"] == settlement_id
 
     await plots_api.plot_tiles(

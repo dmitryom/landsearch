@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { Check, Copy } from 'lucide-react'
+import { Check, Copy, Map as MapIcon } from 'lucide-react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import LeadForm from '@/components/ui/LeadForm'
 import { api, Plot } from '@/lib/api'
-import { BASE_LAYERS, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
+import { BASE_LAYERS, DEFAULT_BASE_LAYER_ID, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
+import { copyText } from '@/lib/clipboard'
 import { getGeometryBounds } from '@/lib/plot-bounds'
 
 const DETAIL_PLOT_SOURCE_ID = 'detail-plot'
@@ -86,10 +87,12 @@ export default function PlotDetailPage() {
   const params = useParams()
   const [plot, setPlot] = useState<Plot | null>(null)
   const [loading, setLoading] = useState(true)
-  const [baseLayer, setBaseLayer] = useState('satellite')
+  const [baseLayer, setBaseLayer] = useState(DEFAULT_BASE_LAYER_ID)
   const [copied, setCopied] = useState(false)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const detailMapContainerRef = useRef<HTMLDivElement | null>(null)
+  const switchingLayerRef = useRef(false)
+  const queuedLayerRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!params.id) return
@@ -121,13 +124,29 @@ export default function PlotDetailPage() {
     const layer = BASE_LAYERS.find((item) => item.id === layerId)
     const map = mapRef.current
     if (!layer || !map || !plot) return
+    if (switchingLayerRef.current) {
+      queuedLayerRef.current = layerId
+      return
+    }
 
+    switchingLayerRef.current = true
     setBaseLayer(layerId)
     let done = false
-    const reinit = () => {
+    let styleReady = false
+    const finish = () => {
       if (done) return
       done = true
+      switchingLayerRef.current = false
+      const queuedLayer = queuedLayerRef.current
+      queuedLayerRef.current = null
+      if (queuedLayer && queuedLayer !== layerId) switchBaseLayer(queuedLayer)
+    }
+    const reinit = () => {
+      if (styleReady) return
+      styleReady = true
       addDetailPlotLayer(map, plot)
+      map.once('idle', () => window.setTimeout(finish, 4000))
+      window.setTimeout(finish, 6000)
     }
     map.once('style.load', reinit)
     map.setStyle(layer.style)
@@ -136,12 +155,10 @@ export default function PlotDetailPage() {
 
   const copyCadastralNumber = async () => {
     if (!plot) return
-    try {
-      await navigator.clipboard.writeText(plot.cadastral_number)
-      setCopied(true)
+    const copiedSuccessfully = await copyText(plot.cadastral_number)
+    setCopied(copiedSuccessfully)
+    if (copiedSuccessfully) {
       window.setTimeout(() => setCopied(false), 1200)
-    } catch {
-      setCopied(false)
     }
   }
 
@@ -260,7 +277,7 @@ export default function PlotDetailPage() {
                   }`}
                   title={layer.name}
                 >
-                  <span>{layer.icon}</span>
+                  <MapIcon className="h-4 w-4" aria-hidden="true" />
                   <span className="hidden sm:inline">{layer.name}</span>
                 </button>
               ))}

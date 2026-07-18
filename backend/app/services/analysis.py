@@ -5,7 +5,7 @@ from uuid import UUID
 
 from geoalchemy2 import shape
 from shapely.ops import unary_union
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Plot, PlotStatus, Settlement, User
@@ -29,6 +29,25 @@ def _area_m2(poly) -> float:
     return projected.area
 
 
+def _analysis_plot_scope(settlement_id: UUID, tenant_id=None):
+    """Keep analysis parcel selection identical to the boundary-scoped map queries."""
+    stmt = select(Plot).join(
+        Settlement,
+        Settlement.id == settlement_id,
+    ).where(
+        Plot.is_active,
+        Plot.geometry.isnot(None),
+        Settlement.geometry.isnot(None),
+        func.ST_CoveredBy(Plot.geometry, Settlement.geometry),
+    )
+    if tenant_id is not None:
+        stmt = stmt.where(
+            Plot.tenant_id == tenant_id,
+            Settlement.tenant_id == tenant_id,
+        )
+    return stmt
+
+
 async def _load_plots_for_analysis(
     session: AsyncSession,
     settlement_id: str,
@@ -42,13 +61,7 @@ async def _load_plots_for_analysis(
     if not settlement:
         raise ValueError("Settlement not found")
 
-    stmt = select(Plot).where(
-        Plot.settlement_id == UUID(settlement_id),
-        Plot.is_active,
-    )
-    if tenant_id is not None:
-        stmt = stmt.where(Plot.tenant_id == tenant_id)
-    result = await session.execute(stmt)
+    result = await session.execute(_analysis_plot_scope(UUID(settlement_id), tenant_id))
     plots = list(result.scalars().all())
 
     return settlement, plots

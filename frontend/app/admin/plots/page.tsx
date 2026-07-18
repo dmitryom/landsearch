@@ -4,9 +4,10 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { api, type Plot } from '@/lib/api'
 import { STATUS_STYLES } from '@/lib/constants'
 import { DataTable, type ColumnDef } from '@/components/ui/DataTable'
-import { Pin, PinOff, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pin, PinOff, Trash2 } from 'lucide-react'
 
 const PAGE_SIZE = 20
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 200] as const
 
 const STATUS_OPTIONS = [
   { value: 'free', label: 'Свободен' },
@@ -39,6 +40,9 @@ export default function AdminPlotsPage() {
   const [plots, setPlots] = useState<Plot[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(PAGE_SIZE)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<Plot['status'] | undefined>()
   const [total, setTotal] = useState(0)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [pinnedColumns, setPinnedColumns] = useState<Record<string, 'left' | 'right'>>({
@@ -73,17 +77,36 @@ export default function AdminPlotsPage() {
   const [editForm, setEditForm] = useState<Partial<Plot>>({})
   const [editLoading, setEditLoading] = useState(false)
 
-  const loadPlots = useCallback(async (p: number) => {
+  const loadPlots = useCallback(async (p: number, size: number, query: string, status?: Plot['status']) => {
     setLoading(true)
     try {
-      const res = await api.plots.list({ page: String(p), page_size: String(PAGE_SIZE) })
+      const params: Record<string, string> = { page: String(p), page_size: String(size) }
+      if (query.trim()) params.query = query.trim()
+      if (status) params.status = status
+      const res = await api.plots.list(params)
       setPlots(res.items)
       setTotal(res.total)
     } catch {}
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadPlots(page) }, [page, loadPlots])
+  useEffect(() => { loadPlots(page, pageSize, searchQuery, statusFilter) }, [page, pageSize, searchQuery, statusFilter, loadPlots])
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    setPage(1)
+    setSelectedRows([])
+    setSelectAllMatching(false)
+    setSelectionResetToken((token) => token + 1)
+  }
+
+  const handleStatusFilterChange = (values: string[]) => {
+    setStatusFilter(values[0] as Plot['status'] | undefined)
+    setPage(1)
+    setSelectedRows([])
+    setSelectAllMatching(false)
+    setSelectionResetToken((token) => token + 1)
+  }
 
   const handleStatusChange = async (plotId: string, newStatus: string) => {
     const prev = plots
@@ -150,7 +173,7 @@ export default function AdminPlotsPage() {
       setNspdData(null)
       setLookupInput('')
       setForm({ cadastral_number: '', address: '', area_m2: '', category: '', permitted_use: '', cadastral_value: '', price: '', status: 'free', title: '', object_type: '', land_plot_type: '', registration_date: '', ownership_form: '' })
-      loadPlots(1)
+      loadPlots(1, pageSize, searchQuery, statusFilter)
       setPage(1)
     } catch (e: any) {
       alert(e.message || 'Ошибка создания')
@@ -161,17 +184,8 @@ export default function AdminPlotsPage() {
   const startEdit = (plot: Plot) => {
     setEditId(plot.id)
     setEditForm({
-      address: plot.address || '',
-      area_m2: plot.area_m2 || undefined,
-      category: plot.category || '',
-      permitted_use: plot.permitted_use || '',
-      cadastral_value: plot.cadastral_value || undefined,
       price: plot.price || undefined,
-      title: plot.title || '',
-      object_type: plot.object_type || '',
-      land_plot_type: plot.land_plot_type || '',
-      registration_date: plot.registration_date || '',
-      ownership_form: plot.ownership_form || '',
+      status: plot.status,
     })
   }
 
@@ -181,7 +195,7 @@ export default function AdminPlotsPage() {
     try {
       await api.plots.update(editId, editForm)
       setEditId(null)
-      loadPlots(page)
+      loadPlots(page, pageSize, searchQuery, statusFilter)
     } catch (e: any) {
       alert(e.message || 'Ошибка обновления')
     }
@@ -192,26 +206,74 @@ export default function AdminPlotsPage() {
     if (!confirm('Удалить участок?')) return
     try {
       await api.plots.delete(plotId)
-      loadPlots(page)
+      loadPlots(page, pageSize, searchQuery, statusFilter)
     } catch {}
   }
 
   const [selectedRows, setSelectedRows] = useState<Plot[]>([])
+  const [selectAllMatching, setSelectAllMatching] = useState(false)
+  const [selectionResetToken, setSelectionResetToken] = useState(0)
   const [bulkDeleteLoading, setBulkDeleteLoading] = useState(false)
+  const [bulkStatus, setBulkStatus] = useState<Plot['status']>('free')
+  const [bulkStatusLoading, setBulkStatusLoading] = useState(false)
 
   const handleBulkDelete = async () => {
-    if (!selectedRows.length) return
-    if (!confirm(`Удалить ${selectedRows.length} участков?`)) return
+    const targetAll = selectAllMatching
+    if (!targetAll && !selectedRows.length) return
+
+    const targetCount = targetAll ? total : selectedRows.length
+    if (targetAll) {
+      const confirmation = window.prompt(
+        `Будут скрыты ${targetCount} участков по текущему поиску и фильтру. Введите УДАЛИТЬ для подтверждения.`,
+      )
+      if (confirmation !== 'УДАЛИТЬ') return
+    } else if (!confirm(`Удалить ${targetCount} участков?`)) {
+      return
+    }
+
     setBulkDeleteLoading(true)
     try {
-      await api.plots.bulkDelete(selectedRows.map((r) => r.id))
+      await api.plots.bulkDelete(targetAll ? [] : selectedRows.map((row) => row.id), {
+        all_plots: targetAll,
+        query: targetAll ? searchQuery.trim() || undefined : undefined,
+        filter_status: targetAll ? statusFilter : undefined,
+      })
       setSelectedRows([])
-      loadPlots(page)
+      setSelectAllMatching(false)
+      setSelectionResetToken((value) => value + 1)
+      await loadPlots(page, pageSize, searchQuery, statusFilter)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : typeof e === 'object' && e !== null ? JSON.stringify(e) : String(e)
       alert(msg || 'Ошибка удаления')
     }
     setBulkDeleteLoading(false)
+  }
+
+  const handleBulkStatusChange = async () => {
+    const targetAll = selectAllMatching
+    if (!targetAll && !selectedRows.length) return
+    const targetCount = targetAll ? total : selectedRows.length
+    if (!confirm(`Изменить статус у ${targetCount} участков на «${STATUS_OPTIONS.find((item) => item.value === bulkStatus)?.label}»?`)) return
+    const previous = plots
+    const selectedIds = selectedRows.map((row) => row.id)
+    setBulkStatusLoading(true)
+    setPlots((current) => current.map((plot) => selectedIds.includes(plot.id) ? { ...plot, status: bulkStatus } : plot))
+    try {
+      await api.plots.bulkUpdateStatus(targetAll ? [] : selectedIds, bulkStatus, {
+        all_plots: targetAll,
+        query: targetAll ? searchQuery.trim() || undefined : undefined,
+        filter_status: targetAll ? statusFilter : undefined,
+      })
+      setSelectedRows([])
+      setSelectAllMatching(false)
+      setSelectionResetToken((value) => value + 1)
+      await loadPlots(page, pageSize, searchQuery, statusFilter)
+    } catch (e: unknown) {
+      setPlots(previous)
+      const msg = e instanceof Error ? e.message : typeof e === 'object' && e !== null ? JSON.stringify(e) : String(e)
+      alert(msg || 'Ошибка массового изменения статуса')
+    }
+    setBulkStatusLoading(false)
   }
 
   const columns = useMemo<ColumnDef<Plot>[]>(() => [
@@ -230,10 +292,7 @@ export default function AdminPlotsPage() {
       header: 'Адрес',
       cell: ({ row }) => {
         const p = row.original
-        if (editId === p.id) {
-          return <input value={String(editForm.address || '')} onChange={(e) => setEditForm({ ...editForm, address: e.target.value })} className="w-full px-1 py-0.5 border rounded text-xs" />
-        }
-        return <span className="text-xs truncate max-w-[180px] block" title={p.address || ''}>{p.address || '-'}</span>
+        return <span className="block min-w-0 whitespace-normal break-words text-xs leading-5" title={p.address || ''}>{p.address || '-'}</span>
       },
       size: 200,
     },
@@ -242,9 +301,6 @@ export default function AdminPlotsPage() {
       header: 'Площадь',
       cell: ({ row }) => {
         const p = row.original
-        if (editId === p.id) {
-          return <input type="number" value={String(editForm.area_m2 || '')} onChange={(e) => setEditForm({ ...editForm, area_m2: e.target.value ? parseFloat(e.target.value) : undefined })} className="w-full px-1 py-0.5 border rounded text-xs text-right" />
-        }
         return <span className="text-xs text-right block">{p.area_m2 ? `${(p.area_m2 / 100).toFixed(1)} сот.` : '-'}</span>
       },
       sortingFn: 'basic',
@@ -255,9 +311,6 @@ export default function AdminPlotsPage() {
       header: 'ВРИ',
       cell: ({ row }) => {
         const p = row.original
-        if (editId === p.id) {
-          return <input value={String(editForm.permitted_use || '')} onChange={(e) => setEditForm({ ...editForm, permitted_use: e.target.value })} className="w-full px-1 py-0.5 border rounded text-xs" />
-        }
         return <span className="text-xs">{p.permitted_use || '-'}</span>
       },
       size: 160,
@@ -267,9 +320,6 @@ export default function AdminPlotsPage() {
       header: 'Категория',
       cell: ({ row }) => {
         const p = row.original
-        if (editId === p.id) {
-          return <input value={String(editForm.category || '')} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="w-full px-1 py-0.5 border rounded text-xs" />
-        }
         return <span className="text-xs">{p.category || '-'}</span>
       },
       size: 140,
@@ -279,9 +329,6 @@ export default function AdminPlotsPage() {
       header: 'Форма собств.',
       cell: ({ row }) => {
         const p = row.original
-        if (editId === p.id) {
-          return <input value={String(editForm.ownership_form || '')} onChange={(e) => setEditForm({ ...editForm, ownership_form: e.target.value })} className="w-full px-1 py-0.5 border rounded text-xs" />
-        }
         return <span className="text-xs">{p.ownership_form || '-'}</span>
       },
       size: 120,
@@ -291,9 +338,6 @@ export default function AdminPlotsPage() {
       header: 'Вид участка',
       cell: ({ row }) => {
         const p = row.original
-        if (editId === p.id) {
-          return <input value={String(editForm.land_plot_type || '')} onChange={(e) => setEditForm({ ...editForm, land_plot_type: e.target.value })} className="w-full px-1 py-0.5 border rounded text-xs" />
-        }
         return <span className="text-xs">{p.land_plot_type || '-'}</span>
       },
       size: 120,
@@ -367,15 +411,23 @@ export default function AdminPlotsPage() {
     },
   ], [updatingId, editId, editForm, editLoading, handleStatusChange, handleEditSave, startEdit, handleDelete])
 
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const firstRow = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const lastRow = Math.min(page * pageSize, total)
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold">Участки</h2>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">{total} всего</span>
+    <div className="mx-auto max-w-[1800px]">
+      <div className="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--ls-muted)]">Рабочая область · NSPD</p>
+          <h2 className="text-2xl font-bold text-[var(--ls-ink)]">Участки</h2>
+        </div>
+        <div className="flex w-full sm:w-auto flex-wrap items-center gap-2">
+          <span className="rounded-full bg-[#e4f1ec] px-2.5 py-1 text-sm font-semibold text-[var(--ls-green-dark)]">{total} всего</span>
+          <span className="text-xs text-[var(--ls-muted)]" title="Кадастровые сведения загружены из Национальной системы пространственных данных">Источник данных: NSPD</span>
           <button
+            type="button"
             onClick={() => { setShowCreate(!showCreate); setNspdData(null); setLookupInput(''); setLookupError(''); }}
-            className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700"
+            className="ml-auto min-h-11 rounded-md bg-[var(--ls-green)] px-3 text-sm font-semibold text-white hover:bg-[var(--ls-green-dark)] sm:ml-0"
           >
             {showCreate ? 'Отмена' : '+ Добавить участок'}
           </button>
@@ -383,7 +435,7 @@ export default function AdminPlotsPage() {
       </div>
 
       {showCreate && (
-        <div className="bg-white rounded-lg shadow p-4 mb-4">
+        <div className="ls-panel mb-4 p-4">
           <h3 className="font-semibold mb-3">Поиск в ЕГРН / Росреестр</h3>
           <div className="flex gap-2 mb-4">
             <input
@@ -484,38 +536,92 @@ export default function AdminPlotsPage() {
         </div>
       )}
 
+      <aside className="ls-panel mb-4 p-4">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--ls-muted)]">Контроль данных</p>
+        <dl className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+          <div><dt className="text-xs text-[var(--ls-muted)]">Показывается</dt><dd className="font-semibold">{firstRow}–{lastRow} из {total}</dd></div>
+          <div><dt className="text-xs text-[var(--ls-muted)]">Источник геометрии</dt><dd className="font-semibold text-[var(--ls-green-dark)]">NSPD</dd></div>
+          <div><dt className="text-xs text-[var(--ls-muted)]">Выбрано</dt><dd className="font-semibold">{selectAllMatching ? 'Все ' + total : selectedRows.length}</dd></div>
+        </dl>
+      </aside>
+
       <DataTable
         data={plots}
         columns={columns}
         searchPlaceholder="Поиск по кадастровому номеру, адресу..."
+        searchValue={searchQuery}
+        onSearchChange={handleSearchChange}
+        manualFiltering
         facetedFilters={[
           {
             columnId: 'status',
             title: 'Статус',
             options: STATUS_FACETED,
+            singleSelect: true,
           },
         ]}
-        pageSize={20}
+        onFacetedFilterChange={(columnId, values) => {
+          if (columnId === 'status') handleStatusFilterChange(values)
+        }}
+        pageSize={pageSize}
         loading={loading}
         enableRowSelection
+        selectAllRows={selectAllMatching}
+        onSelectAllPage={(selected) => {
+          if (!selected) setSelectAllMatching(false)
+        }}
         enableColumnResize
+        hidePagination
+        manualPagination
         exportFilename="plots"
         onRowSelect={setSelectedRows}
+        selectionResetToken={selectionResetToken}
         toolbar={
-          selectedRows.length > 0 ? (
-            <div className="flex items-center gap-2 px-2 py-1 bg-red-50 rounded-lg text-xs text-red-700">
-              <Trash2 className="w-3 h-3" />
-              Выбрано: {selectedRows.length}
+          selectedRows.length > 0 || selectAllMatching ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#bad8ca] bg-[#f0faf5] px-2 py-2 text-xs text-[var(--ls-green-dark)]">
+              <span className="font-semibold">Выбрано {selectAllMatching ? total : selectedRows.length} / {total}</span>
+              {!selectAllMatching && selectedRows.length > 0 && total > selectedRows.length && (
+                <button
+                  type="button"
+                  onClick={() => setSelectAllMatching(true)}
+                  className="font-medium text-[var(--ls-blue)] underline hover:text-[var(--ls-green-dark)]"
+                >
+                  Выбрать все {total} найденных
+                </button>
+              )}
+              <label className="flex items-center gap-1">
+                <span className="sr-only">Массовое изменение статуса</span>
+                <select
+                  aria-label="Массовое изменение статуса"
+                  value={bulkStatus}
+                  onChange={(e) => setBulkStatus(e.target.value as Plot['status'])}
+                  className="min-h-8 rounded-md border border-blue-200 bg-white px-2 py-1 text-xs"
+                >
+                  {STATUS_OPTIONS.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+                </select>
+              </label>
+              <button
+                onClick={handleBulkStatusChange}
+                disabled={bulkStatusLoading || bulkDeleteLoading}
+                className="min-h-8 rounded-md bg-[var(--ls-green)] px-3 py-1 font-semibold text-white hover:bg-[var(--ls-green-dark)] disabled:opacity-50"
+              >
+                {bulkStatusLoading ? 'Изменение...' : 'Изменить статус'}
+              </button>
+              <Trash2 className="ml-1 h-3 w-3 text-red-600" />
               <button
                 onClick={handleBulkDelete}
-                disabled={bulkDeleteLoading}
-                className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+                disabled={bulkDeleteLoading || bulkStatusLoading}
+                className="rounded-md bg-[var(--ls-red)] px-3 py-1 text-white hover:bg-[#a94444] disabled:opacity-50"
               >
-                {bulkDeleteLoading ? 'Удаление...' : `Удалить (${selectedRows.length})`}
+                {bulkDeleteLoading ? 'Удаление...' : `Удалить (${selectAllMatching ? total : selectedRows.length})`}
               </button>
               <button
-                onClick={() => setSelectedRows([])}
-                className="text-red-600 hover:text-red-800 underline"
+                onClick={() => {
+                  setSelectedRows([])
+                  setSelectAllMatching(false)
+                  setSelectionResetToken((value) => value + 1)
+                }}
+                className="text-[var(--ls-blue)] underline hover:text-[var(--ls-green-dark)]"
               >
                 Отмена
               </button>
@@ -523,6 +629,41 @@ export default function AdminPlotsPage() {
           ) : undefined
         }
       />
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500">
+        <span>{firstRow}-{lastRow} из {total}</span>
+        <label className="flex items-center gap-2">
+          Строк на странице
+          <select
+            value={pageSize}
+            onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
+            className="px-2 py-1 border rounded text-xs bg-white"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setPage(Math.max(1, page - 1))}
+            disabled={page <= 1 || loading}
+            className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
+            title="Предыдущая страница"
+            aria-label="Предыдущая страница"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <span className="min-w-[72px] text-center">Страница {page} / {totalPages}</span>
+          <button
+            onClick={() => setPage(page === totalPages ? 1 : page + 1)}
+            disabled={total === 0 || loading}
+            className="p-1 rounded hover:bg-gray-100 disabled:opacity-30"
+            title="Следующая страница"
+            aria-label="Следующая страница"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

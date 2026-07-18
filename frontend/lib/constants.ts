@@ -1,5 +1,8 @@
 import type { StyleSpecification } from 'maplibre-gl'
 
+export const MAP_GLYPHS_URL = '/settlement-map-glyphs/{fontstack}/{range}.pbf'
+export const MAP_LABEL_FONT = 'Noto Sans Regular'
+
 export interface BaseLayerDef {
   id: string
   name: string
@@ -188,13 +191,57 @@ export function buildVriBorderExpr(): any[] {
   return expr
 }
 
+export function buildStatusFillExpr(): any[] {
+  const expr: any[] = ['match', ['get', 'status']]
+  for (const [status, color] of Object.entries(STATUS_COLORS)) expr.push(status, color)
+  expr.push('#9ca3af')
+  return expr
+}
+
+export function buildStatusBorderExpr(): any[] {
+  const expr: any[] = ['match', ['get', 'status']]
+  for (const [status, color] of Object.entries(STATUS_COLORS)) expr.push(status, _darken(color))
+  expr.push('#4b5563')
+  return expr
+}
+
+export const DEFAULT_BASE_LAYER_ID = 'landscanner'
+
 export const BASE_LAYERS: BaseLayerDef[] = [
+  {
+    id: 'landscanner',
+    name: 'LandScanner',
+    icon: 'satellite',
+    style: {
+      version: 8,
+      glyphs: MAP_GLYPHS_URL,
+      sources: {
+        imagery: {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          attribution: '© Esri',
+        },
+        labels: {
+          type: 'raster',
+          tiles: ['https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© CARTO',
+        },
+      },
+      layers: [
+        { id: 'landscanner-imagery', type: 'raster', source: 'imagery' },
+        { id: 'landscanner-labels', type: 'raster', source: 'labels', maxzoom: 19 },
+      ],
+    },
+  },
   {
     id: 'osm',
     name: 'Схема',
-    icon: '🗺️',
+    icon: 'map',
     style: {
       version: 8,
+      glyphs: MAP_GLYPHS_URL,
       sources: {
         osm: {
           type: 'raster',
@@ -209,26 +256,10 @@ export const BASE_LAYERS: BaseLayerDef[] = [
   {
     id: 'satellite',
     name: 'Спутник',
-    icon: '🛰️',
+    icon: 'satellite',
     style: {
       version: 8,
-      sources: {
-        esri: {
-          type: 'raster',
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-          tileSize: 256,
-          attribution: '© Esri',
-        },
-      },
-      layers: [{ id: 'esri', type: 'raster', source: 'esri' }],
-    },
-  },
-  {
-    id: 'hybrid',
-    name: 'Гибрид',
-    icon: '🌍',
-    style: {
-      version: 8,
+      glyphs: MAP_GLYPHS_URL,
       sources: {
         esri: {
           type: 'raster',
@@ -238,23 +269,51 @@ export const BASE_LAYERS: BaseLayerDef[] = [
         },
         labels: {
           type: 'raster',
-          tiles: ['https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'],
+          tiles: ['https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'],
           tileSize: 256,
-          attribution: '© Esri',
+          attribution: '© CARTO',
         },
       },
       layers: [
         { id: 'esri', type: 'raster', source: 'esri' },
-        { id: 'labels', type: 'raster', source: 'labels' },
+        { id: 'satellite-labels', type: 'raster', source: 'labels', maxzoom: 17, paint: { 'raster-opacity': 0.55 } },
+      ],
+    },
+  },
+  {
+    id: 'hybrid',
+    name: 'Гибрид',
+    icon: 'hybrid',
+    style: {
+      version: 8,
+      glyphs: MAP_GLYPHS_URL,
+      sources: {
+        esri: {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          attribution: '© Esri',
+        },
+        labels: {
+          type: 'raster',
+          tiles: ['https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© CARTO',
+        },
+      },
+      layers: [
+        { id: 'esri', type: 'raster', source: 'esri' },
+        { id: 'labels', type: 'raster', source: 'labels', maxzoom: 17, paint: { 'raster-opacity': 0.55 } },
       ],
     },
   },
   {
     id: 'topo',
     name: 'Топо',
-    icon: '🏔️',
+    icon: 'topo',
     style: {
       version: 8,
+      glyphs: MAP_GLYPHS_URL,
       sources: {
         topo: {
           type: 'raster',
@@ -269,9 +328,10 @@ export const BASE_LAYERS: BaseLayerDef[] = [
   {
     id: 'light',
     name: 'Светлая',
-    icon: '☀️',
+    icon: 'light',
     style: {
       version: 8,
+      glyphs: MAP_GLYPHS_URL,
       sources: {
         carto: {
           type: 'raster',
@@ -286,9 +346,10 @@ export const BASE_LAYERS: BaseLayerDef[] = [
   {
     id: 'dark',
     name: 'Тёмная',
-    icon: '🌙',
+    icon: 'dark',
     style: {
       version: 8,
+      glyphs: MAP_GLYPHS_URL,
       sources: {
         carto: {
           type: 'raster',
@@ -303,9 +364,10 @@ export const BASE_LAYERS: BaseLayerDef[] = [
   {
     id: 'voyager',
     name: 'Турист',
-    icon: '🧭',
+    icon: 'map',
     style: {
       version: 8,
+      glyphs: MAP_GLYPHS_URL,
       sources: {
         carto: {
           type: 'raster',
@@ -320,9 +382,10 @@ export const BASE_LAYERS: BaseLayerDef[] = [
   {
     id: 'cyclosm',
     name: 'Вело',
-    icon: '🚲',
+    icon: 'map',
     style: {
       version: 8,
+      glyphs: MAP_GLYPHS_URL,
       sources: {
         cyclosm: {
           type: 'raster',

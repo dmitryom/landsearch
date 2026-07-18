@@ -6,14 +6,15 @@ from ..schemas import PlotResponse
 from ..services.vri import normalize_vri
 
 
-def plot_to_response(plot: Plot) -> PlotResponse:
+def plot_to_response(plot: Plot, *, include_geometry: bool = True) -> PlotResponse:
     geom = None
     center_lng = None
     center_lat = None
     if plot.geometry:
         try:
             shp = shape.to_shape(plot.geometry)
-            geom = mapping(shp)
+            if include_geometry:
+                geom = mapping(shp)
             c = shp.centroid
             center_lng, center_lat = c.x, c.y
         except Exception:

@@ -40,7 +40,13 @@ export default function AdminDashboardPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold text-gray-900">Дашборд</h1>
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--ls-green)]">LandSearch · NSPD</p>
+          <h1 className="text-2xl font-bold text-[var(--ls-ink)]">Дашборд</h1>
+        </div>
+        <span className="hidden text-xs text-[var(--ls-muted)] sm:block">Состояние земельного фонда</span>
+      </div>
 
       <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard title="Всего участков" value={stats.total} />
@@ -70,9 +76,9 @@ export default function AdminDashboardPage() {
 
 function StatCard({ title, value, color }: { title: string; value: number | string; color?: string }) {
   return (
-    <div className="rounded-md border bg-white p-4">
-      <p className="text-sm text-gray-500">{title}</p>
-      <p className={`mt-1 text-3xl font-bold ${color || 'text-gray-900'}`}>{value}</p>
+    <div className="rounded-md border border-[var(--ls-line)] bg-[var(--ls-surface)] p-4 shadow-sm">
+      <p className="text-sm text-[var(--ls-muted)]">{title}</p>
+      <p className={`mt-1 text-3xl font-bold ${color || 'text-[var(--ls-ink)]'}`}>{value}</p>
     </div>
   )
 }
@@ -80,8 +86,8 @@ function StatCard({ title, value, color }: { title: string; value: number | stri
 function QualityCard({ title, value }: { title: string; value: number }) {
   const hasIssue = value > 0
   return (
-    <div className="rounded-md border bg-white p-4">
-      <p className="text-sm text-gray-500">{title}</p>
+    <div className="rounded-md border border-[var(--ls-line)] bg-[var(--ls-surface)] p-4 shadow-sm">
+      <p className="text-sm text-[var(--ls-muted)]">{title}</p>
       <p className={`mt-1 text-2xl font-bold ${hasIssue ? 'text-orange-600' : 'text-green-600'}`}>{value}</p>
     </div>
   )

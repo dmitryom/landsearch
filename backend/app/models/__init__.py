@@ -11,6 +11,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -86,6 +87,9 @@ class Settlement(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text)
     geometry = Column(Geometry(srid=4326, spatial_index=False), nullable=True)
+    boundary_source = Column(String(32), nullable=True, default="nspd")
+    boundary_radius_m = Column(Float, nullable=True)
+    boundary_updated_at = Column(DateTime(timezone=True), nullable=True)
     address = Column(String(500))
     region = Column(String(100))
     district = Column(String(100))
@@ -104,12 +108,13 @@ class Plot(Base):
         Index("idx_plots_area", "area_m2"),
         Index("idx_plots_permitted_use", "permitted_use"),
         Index("idx_plots_settlement_id", "settlement_id"),
+        UniqueConstraint("tenant_id", "cadastral_number", name="uq_plots_tenant_cadastral_number"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     settlement_id = Column(UUID(as_uuid=True), ForeignKey("settlements.id"), nullable=True)
-    cadastral_number = Column(String(100), unique=True, nullable=False, index=True)
+    cadastral_number = Column(String(100), nullable=False, index=True)
 
     address = Column(String(500))
     area_m2 = Column(Float)

@@ -14,15 +14,26 @@ const loginPage = new URL('../app/auth/login/page.tsx', import.meta.url)
 const adminLayout = new URL('../app/admin/layout.tsx', import.meta.url)
 const adminDashboardPage = new URL('../app/admin/page.tsx', import.meta.url)
 const adminLeadsPage = new URL('../app/admin/leads/page.tsx', import.meta.url)
+const adminPlotsPage = new URL('../app/admin/plots/page.tsx', import.meta.url)
+const adminSettlementsPage = new URL('../app/admin/settlements/page.tsx', import.meta.url)
+const boundaryEditorComponent = new URL('../components/admin/BoundaryEditor.tsx', import.meta.url)
+const dataTableComponent = new URL('../components/ui/DataTable.tsx', import.meta.url)
+const draggableMapPanelComponent = new URL('../components/ui/DraggableMapPanel.tsx', import.meta.url)
 const mapViewComponent = new URL('../components/MapView.tsx', import.meta.url)
 const layerSwitcherComponent = new URL('../components/LayerSwitcher.tsx', import.meta.url)
+const settlementContextComponent = new URL('../components/SettlementContextBar.tsx', import.meta.url)
+const quickFiltersComponent = new URL('../components/ui/QuickFilters.tsx', import.meta.url)
 const plotCardListComponent = new URL('../components/PlotCardList.tsx', import.meta.url)
+const plotPopupComponent = new URL('../components/ui/PlotPopup.tsx', import.meta.url)
+const statusLegendComponent = new URL('../components/StatusLegend.tsx', import.meta.url)
 const leadFormComponent = new URL('../components/ui/LeadForm.tsx', import.meta.url)
+const clipboardModule = new URL('../lib/clipboard.ts', import.meta.url)
 const logPanelComponent = new URL('../components/ui/LogPanel.tsx', import.meta.url)
 const searchBarComponent = new URL('../components/ui/SearchBar.tsx', import.meta.url)
 const plotMapLayersModule = new URL('../lib/plot-map-layers.ts', import.meta.url)
 const apiClient = new URL('../lib/api.ts', import.meta.url)
 const constantsModule = new URL('../lib/constants.ts', import.meta.url)
+const backendPlotsApi = new URL('../../backend/app/api/v1/plots.py', import.meta.url)
 const mapTilesModule = new URL('../lib/map-tiles.ts', import.meta.url)
 const nginxMapLocation = new URL('../../deploy/nginx/corner-bright-landscanner-map.conf', import.meta.url)
 const publishScript = fileURLToPath(new URL('../../scripts/publish-landscanner-map.sh', import.meta.url))
@@ -109,20 +120,139 @@ test('home plot boundaries use the LandScanner parcel layer style', async () => 
   assert.match(mapView, /addPlotTileLayers\(map, tileUrlRef\.current\)/)
   assert.match(layerSwitcher, /addPlotTileLayers\(map, tileUrlRef\.current\)/)
   assert.match(plotLayers, /id: 'plots-fill'/)
-  assert.match(plotLayers, /'fill-opacity': 0\.42/)
+  assert.match(plotLayers, /'fill-opacity': 0\.55/)
   assert.match(plotLayers, /id: 'plots-border'/)
   assert.match(plotLayers, /'line-join': 'round'/)
   assert.match(plotLayers, /'line-cap': 'round'/)
-  assert.match(plotLayers, /'line-width': 1\.8/)
+  assert.match(plotLayers, /'line-width': \['interpolate'/)
   assert.match(plotLayers, /'line-opacity': 0\.95/)
-  assert.match(plotLayers, /id: 'plots-points'/)
-  assert.match(plotLayers, /minzoom: 16/)
-  assert.match(plotLayers, /'circle-radius': 4/)
-  assert.match(plotLayers, /'circle-stroke-color': '#ffffff'/)
-  assert.match(plotLayers, /'circle-stroke-width': 1\.2/)
-  assert.match(plotLayers, /'circle-opacity': 0\.75/)
+  assert.doesNotMatch(plotLayers, /id: 'plots-points'/)
   assert.doesNotMatch(mapView, /'fill-opacity': 0\.18/)
   assert.doesNotMatch(layerSwitcher, /'fill-opacity': 0\.18/)
+})
+
+test('home map keeps a selected plot Pin and status-colored highlight', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const mapView = await readFile(mapViewComponent, 'utf8')
+
+  assert.match(home, /selectedPlot=\{selectedPlot\}/)
+  assert.match(home, /api\.plots\.get\(String\(props\.id\)\)/)
+  assert.match(home, /popupPlot/)
+  assert.match(home, /onClose=\{\(\) => setPopupPlot\(null\)\}/)
+  assert.match(mapView, /selected-plot/)
+  assert.match(mapView, /new maplibregl\.Marker\(\{ color: statusColor \}\)/)
+  assert.match(mapView, /selectedMarkerRef\.current\?\.remove\(\)/)
+  assert.match(mapView, /map\.(on|once)\('style\.load'/)
+  assert.match(mapView, /setTimeout\(\(\) => \{[\s\S]*renderSelectedPlot\(map, selectedPlotRef\.current\)/)
+})
+
+test('home map keeps the layer switcher above the selected plot popup', async () => {
+  const home = await readFile(homePage, 'utf8')
+
+  assert.match(home, /absolute top-4 right-12 sm:right-16 z-30/)
+})
+
+test('plot map layers expose white cadastral borders and a status legend', async () => {
+  const plotLayers = await readFile(plotMapLayersModule, 'utf8')
+  const constants = await readFile(constantsModule, 'utf8')
+  const statusLegend = await readFile(statusLegendComponent, 'utf8')
+
+  assert.match(constants, /STATUS_COLORS/)
+  assert.match(plotLayers, /'line-color': '#ffffff'/)
+  assert.match(statusLegend, /STATUS_LABELS/)
+  assert.match(statusLegend, /STATUS_COLORS/)
+})
+
+test('result tray supports hidden, compact, expanded and resizable states', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const plotCards = await readFile(plotCardListComponent, 'utf8')
+
+  assert.match(home, /resultTrayHeight/)
+  assert.match(home, /setResultTrayHeight/)
+  assert.match(plotCards, /Скрыть список участков/)
+  assert.match(plotCards, /Показать список участков/)
+  assert.match(plotCards, /Развернуть список участков/)
+  assert.match(plotCards, /Свернуть список участков/)
+  assert.match(plotCards, /Максимальный размер списка участков/)
+  assert.match(plotCards, /Вернуть размер списка участков/)
+  assert.match(plotCards, /sm:right-4/)
+  assert.match(plotCards, /ResizeHandle/)
+})
+
+test('plot fills use sale status colors and only render a point fallback for point geometries', async () => {
+  const plotLayers = await readFile(plotMapLayersModule, 'utf8')
+
+  assert.match(plotLayers, /buildStatusFillExpr/)
+  assert.match(plotLayers, /'fill-color': buildStatusFillExpr\(\)/)
+  assert.doesNotMatch(plotLayers, /plots-points/)
+  assert.match(plotLayers, /id: PLOT_POINT_FALLBACK_LAYER_ID/)
+  assert.match(plotLayers, /filter: \['==', \['geometry-type'\], 'Point'\]/)
+})
+
+test('satellite layers include transparent street and place labels', async () => {
+  const constants = await readFile(constantsModule, 'utf8')
+  const satelliteSource = constants.slice(constants.indexOf("id: 'satellite'"), constants.indexOf("id: 'hybrid'"))
+
+  assert.match(satelliteSource, /basemaps\.cartocdn\.com/)
+  assert.match(satelliteSource, /satellite-labels/)
+  assert.match(satelliteSource, /maxzoom: 17/)
+  assert.match(satelliteSource, /raster-opacity/)
+})
+
+test('map GeoJSON and popup expose extended cadastral object data', async () => {
+  const backend = await readFile(backendPlotsApi, 'utf8')
+  const popup = await readFile(plotPopupComponent, 'utf8')
+
+  assert.match(backend, /"address": p\.address/)
+  assert.match(backend, /"description": p\.description/)
+  assert.match(backend, /"price_per_hectare": p\.price_per_hectare/)
+  assert.match(backend, /"vri_code": normalize_vri\(p\.permitted_use\)/)
+  assert.match(popup, /plot\.permitted_use \|\| plot\.use/)
+  assert.match(popup, /plot\.cadastral_value/)
+  assert.match(popup, /plot\.object_type/)
+  assert.match(popup, /plot\.description/)
+})
+
+test('admin exposes tenant-scoped bulk status editing', async () => {
+  const adminPlots = await readFile(adminPlotsPage, 'utf8')
+  const api = await readFile(apiClient, 'utf8')
+  const backend = await readFile(backendPlotsApi, 'utf8')
+  const dataTable = await readFile(dataTableComponent, 'utf8')
+
+  assert.match(api, /bulkUpdateStatus/)
+  assert.match(adminPlots, /api\.plots\.bulkUpdateStatus/)
+  assert.match(adminPlots, /Массовое изменение статуса/)
+  assert.match(adminPlots, /selectedRows\.map\(\(row\) => row\.id\)/)
+  assert.match(adminPlots, /selectionResetToken/)
+  assert.match(dataTable, /selectionResetToken\?: number/)
+  assert.match(backend, /@router\.patch\("\/bulk\/status"/)
+  assert.match(backend, /PlotStatusHistory/)
+})
+
+test('admin exposes manual settlement boundary editor with polygon and radius modes', async () => {
+  const adminLayoutSource = await readFile(adminLayout, 'utf8')
+  const api = await readFile(apiClient, 'utf8')
+  const page = await readFile(adminSettlementsPage, 'utf8')
+  const editor = await readFile(boundaryEditorComponent, 'utf8')
+  const editorSource = `${page}\n${editor}`
+
+  assert.match(adminLayoutSource, /key: '\/admin\/settlements'/)
+  assert.match(adminLayoutSource, /Границы/)
+  assert.match(api, /previewBoundary/)
+  assert.match(api, /updateBoundary/)
+  assert.match(editorSource, /Нарисовать полигон/)
+  assert.match(editorSource, /Радиус, м/)
+  assert.match(editorSource, /Сохранить границу/)
+  assert.match(editorSource, /Сбросить границу/)
+  assert.match(editorSource, /boundary/)
+  assert.match(editorSource, /cursor-crosshair/)
+  assert.match(editorSource, /map\.unproject/)
+  assert.match(editorSource, /map\.on\('load', onLoad\)/)
+  assert.match(editorSource, /ref=\{mapContainerRef\} className="h-full w-full"/)
+  assert.match(editorSource, /Координаты/)
+  assert.match(editorSource, /toFixed\(6\)/)
+  assert.match(editorSource, /ls-boundary-point/)
+  assert.match(editorSource, /index \+ 1/)
 })
 
 test('home map does not show cancelled vector tile loads as user-facing errors', async () => {
@@ -153,6 +283,16 @@ test('plot detail uses a real lead form instead of prompt or tel handoff', async
   assert.match(leadForm, /buyer_email/)
 })
 
+test('plot detail copy action has a browser clipboard fallback', async () => {
+  const detail = await readFile(plotDetailPage, 'utf8')
+  const clipboard = await readFile(clipboardModule, 'utf8')
+
+  assert.match(detail, /copyText\(plot\.cadastral_number\)/)
+  assert.match(clipboard, /navigator\.clipboard\?\.writeText/)
+  assert.match(clipboard, /document\.execCommand\('copy'\)/)
+  assert.match(clipboard, /return true/)
+})
+
 test('plot detail map restores the selected plot layer after base-layer switches', async () => {
   const detail = await readFile(plotDetailPage, 'utf8')
   const styleSwitchIndex = detail.indexOf('map.setStyle(layer.style)')
@@ -165,6 +305,19 @@ test('plot detail map restores the selected plot layer after base-layer switches
   assert.notEqual(styleSwitchIndex, -1)
   assert.match(styleSwitchBlock, /map\.once\('style\.load', reinit\)/)
   assert.match(styleSwitchBlock, /setTimeout\(reinit, 500\)/)
+})
+
+test('base-layer switches serialize rapid user clicks before replacing map styles', async () => {
+  const detail = await readFile(plotDetailPage, 'utf8')
+  const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
+
+  for (const source of [detail, layerSwitcher]) {
+    assert.match(source, /queuedLayerRef/)
+    assert.match(source, /style\.load/)
+    assert.match(source, /idle/)
+    assert.match(source, /setTimeout\(finish, 4000\)/)
+    assert.match(source, /setTimeout\(finish, 6000\)/)
+  }
 })
 
 test('admin leads page lists leads and updates lifecycle status', async () => {
@@ -188,6 +341,114 @@ test('admin dashboard uses tenant-wide stats endpoint instead of first page tota
   assert.match(dashboard, /api\.plots\.stats\(\)/)
   assert.match(dashboard, /data_quality/)
   assert.doesNotMatch(dashboard, /page_size:\s*'200'/)
+})
+
+test('admin plots table keeps full text visible when columns are resized', async () => {
+  const adminPlots = await readFile(adminPlotsPage, 'utf8')
+  const dataTable = await readFile(dataTableComponent, 'utf8')
+
+  assert.doesNotMatch(adminPlots, /truncate max-w-\[180px\]/)
+  assert.match(adminPlots, /whitespace-normal break-words text-xs leading-5/)
+  assert.match(dataTable, /w-full min-w-full table-fixed text-sm/)
+  assert.match(dataTable, /whitespace-normal break-words align-top/)
+  assert.match(dataTable, /width: cell\.column\.getSize\(\)/)
+  assert.match(dataTable, /column\.id === 'select'/)
+  assert.match(dataTable, /Выбор строк/)
+})
+
+test('admin plots table exposes server pagination for the full NSPD dataset', async () => {
+  const adminPlots = await readFile(adminPlotsPage, 'utf8')
+  const dataTable = await readFile(dataTableComponent, 'utf8')
+
+  assert.match(adminPlots, /const PAGE_SIZE_OPTIONS = \[20, 50, 100, 200\]/)
+  assert.match(adminPlots, /page_size: String\(size\)/)
+  assert.match(adminPlots, /params\.query = query\.trim\(\)/)
+  assert.match(adminPlots, /searchQuery/)
+  assert.match(adminPlots, /Источник данных: NSPD/)
+  assert.match(adminPlots, /pageSize=\{pageSize\}/)
+  assert.match(adminPlots, /hidePagination/)
+  assert.match(adminPlots, /manualPagination/)
+  assert.match(adminPlots, /setPage\(page === totalPages \? 1 : page \+ 1\)/)
+  assert.match(dataTable, /hidePagination\?: boolean/)
+  assert.match(dataTable, /manualPagination\?: boolean/)
+  assert.match(dataTable, /searchValue\?: string/)
+  assert.match(dataTable, /onSearchChange\?: \(value: string\) => void/)
+  assert.match(dataTable, /manualFiltering\?: boolean/)
+  assert.match(dataTable, /manualPagination,/)
+  assert.match(dataTable, /current\.pageSize === pageSize/)
+})
+
+test('shared layout primitives expose accessible resize and persistence contracts', async () => {
+  const resizeHandle = await readFile(new URL('../components/ui/ResizeHandle.tsx', import.meta.url), 'utf8')
+  const layoutHook = await readFile(new URL('../lib/use-persistent-layout.ts', import.meta.url), 'utf8')
+  const css = await readFile(new URL('../app/globals.css', import.meta.url), 'utf8')
+
+  assert.match(resizeHandle, /role="separator"/)
+  assert.match(resizeHandle, /aria-valuemin/)
+  assert.match(resizeHandle, /onPointerDown/)
+  assert.match(resizeHandle, /ArrowLeft|ArrowRight|ArrowUp|ArrowDown/)
+  assert.match(layoutHook, /safeGet/)
+  assert.match(layoutHook, /safeSet/)
+  assert.match(css, /--ls-green: #237a63/)
+  assert.match(css, /prefers-reduced-motion/)
+})
+
+test('public search shell exposes map-first resizable workspace controls', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const filterPanel = await readFile(new URL('../components/ui/FilterPanel.tsx', import.meta.url), 'utf8')
+  const searchBar = await readFile(searchBarComponent, 'utf8')
+  const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
+  const statusLegend = await readFile(statusLegendComponent, 'utf8')
+
+  assert.match(home, /usePersistentLayout/)
+  assert.match(home, /ResizeHandle/)
+  assert.match(home, /filterRailWidth/)
+  assert.match(home, /resultTrayHeight/)
+  assert.match(home, /onClose={\(\) => setShowFilters\(false\)\}/)
+  assert.match(home, /matchMedia\('\(max-width: 767px\)'\)/)
+  assert.match(home, /className="hidden md:block md:flex-1 md:max-w-xl"/)
+  assert.match(home, /className="hidden md:flex items-center gap-1 sm:gap-2"/)
+  assert.match(home, /bg-\[var\(--ls-green\)\]/)
+  assert.match(filterPanel, /width\?: number/)
+  assert.match(filterPanel, /onClose\?: \(\) => void/)
+  assert.match(searchBar, /aria-label="Поиск по кадастровому номеру, адресу или поселку"/)
+  assert.match(layerSwitcher, /aria-label="Подложка карты"/)
+  assert.match(statusLegend, /aria-label="Легенда статусов участков"/)
+})
+
+test('plot result tray and popup keep selection accessible and resizable', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const plotCards = await readFile(plotCardListComponent, 'utf8')
+  const popup = await readFile(plotPopupComponent, 'utf8')
+
+  assert.match(home, /resultTrayHeight/)
+  assert.match(home, /onHeightChange=/)
+  assert.match(plotCards, /ResizeHandle/)
+  assert.match(plotCards, /selectedPlotId\?: string/)
+  assert.match(plotCards, /aria-selected=/)
+  assert.match(popup, /role="dialog"/)
+  assert.match(popup, /aria-modal="true"/)
+  assert.match(popup, /aria-label="Закрыть карточку участка"/)
+  assert.doesNotMatch(popup, /bg-gradient-to-r/)
+})
+
+test('admin workspace uses the shared map-first design system responsively', async () => {
+  const layout = await readFile(adminLayout, 'utf8')
+  const dashboard = await readFile(adminDashboardPage, 'utf8')
+  const leads = await readFile(adminLeadsPage, 'utf8')
+  const plots = await readFile(adminPlotsPage, 'utf8')
+  const importPage = await readFile(new URL('../app/admin/import/page.tsx', import.meta.url), 'utf8')
+  const settings = await readFile(new URL('../app/admin/settings/page.tsx', import.meta.url), 'utf8')
+
+  assert.match(layout, /bg-\[var\(--ls-paper\)\]/)
+  assert.match(layout, /aria-label="Открыть навигацию"/)
+  assert.match(layout, /md:hidden/)
+  assert.match(dashboard, /var\(--ls-surface\)/)
+  assert.match(leads, /var\(--ls-surface\)/)
+  assert.match(importPage, /var\(--ls-surface\)/)
+  assert.match(settings, /var\(--ls-surface\)/)
+  assert.match(plots, /flex-col items-start gap-3 sm:flex-row/)
+  assert.match(plots, /w-full sm:w-auto/)
 })
 
 test('plot cards support saved favorites, comparison drawer and CSV export', async () => {
@@ -242,7 +503,7 @@ test('search selections use LandScanner-style geometry bounds for the map viewpo
   assert.match(searchBar, /onSearch\(\{ query: s\.value, suggestion: s \}\)/)
   assert.match(home, /suggestion\?\.type === 'settlement'/)
   assert.match(home, /settlement_id: suggestion\.id/)
-  assert.match(home, /api\.settlements\.get\(suggestion\.id\)/)
+  assert.match(home, /api\.settlements\.get\(suggestion\.id, \{ include_plots: false \}\)/)
   assert.match(home, /api\.plots\.get\(suggestion\.id\)/)
   assert.match(home, /selectionRequestIdRef/)
   assert.match(home, /onChange=\{handleFiltersChange\}/)
@@ -261,10 +522,102 @@ test('search selections use LandScanner-style geometry bounds for the map viewpo
   assert.match(searchBar, /setSuggestions\(\[\]\)[\s\S]*onSearch\(\{ query: s\.value, suggestion: s \}\)/)
   assert.match(mapView, /const compactViewport = map\.getContainer\(\)\.clientWidth < 768/)
   assert.match(mapView, /getFitBoundsMaxZoom\(resultBounds\)/)
-  assert.match(mapView, /longitudeSpan < 0\.01 && latitudeSpan < 0\.01 \? 17 : 15/)
+  assert.match(mapView, /longitudeSpan < 0\.01 && latitudeSpan < 0\.01 \? 16 : 15/)
   assert.match(layerSwitcher, /const tileUrlRef = useRef\(buildPlotTileUrl\(filters\)\)/)
   assert.match(layerSwitcher, /addPlotTileLayers\(map, tileUrlRef\.current\)/)
   assert.match(plotCards, /Показано \{plots\.length\} из \{total\}/)
+})
+
+test('settlement selection scopes by boundary without reapplying the settlement name as plot search text', async () => {
+  const home = await readFile(homePage, 'utf8')
+
+  assert.match(home, /suggestion\?\.type === 'settlement'/)
+  assert.match(home, /delete next\.query/)
+  assert.match(home, /settlement_id: suggestion\.id/)
+})
+
+test('selected settlement exposes a map context bar and explicit boundary overlay', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const mapView = await readFile(mapViewComponent, 'utf8')
+  const context = await readFile(settlementContextComponent, 'utf8')
+
+  assert.match(home, /selectedSettlement/)
+  assert.match(home, /SettlementContextBar/)
+  assert.match(home, /boundaryGeometry=\{selectedSettlement\?\.geometry\}/)
+  assert.match(mapView, /boundaryGeometry\?: Record<string, unknown> \| null/)
+  assert.match(mapView, /selected-settlement-boundary/)
+  assert.match(context, /Контекст выбранной территории/)
+  assert.match(context, /Сбросить территорию/)
+  assert.match(context, /free_plots/)
+  assert.match(context, /reserved_plots/)
+  assert.match(context, /booked_plots/)
+  assert.match(context, /sold_plots/)
+})
+
+test('quick filters provide status and high-signal price and area shortcuts', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const quickFilters = await readFile(quickFiltersComponent, 'utf8')
+
+  assert.match(home, /QuickFilters/)
+  assert.match(quickFilters, /Только свободные/)
+  assert.match(quickFilters, /До 5 млн ₽/)
+  assert.match(quickFilters, /10 соток\+/)
+  assert.match(quickFilters, /toggle\('status', 'free'\)/)
+  assert.match(quickFilters, /toggle\('price_max', '5000000'\)/)
+  assert.match(quickFilters, /toggle\('area_min', '1000'\)/)
+  assert.match(quickFilters, /bottom-\[calc\(var\(--result-tray-height\)\+1rem\)\]/)
+})
+
+test('map panels share persistent pinned pointer and keyboard movement', async () => {
+  const source = await readFile(draggableMapPanelComponent, 'utf8')
+
+  assert.match(source, /safeGet/)
+  assert.match(source, /safeSet/)
+  assert.match(source, /pinned:\s*true/)
+  assert.match(source, /setPointerCapture/)
+  assert.match(source, /releasePointerCapture/)
+  assert.match(source, /interactiveTarget !== event\.currentTarget/)
+  assert.match(source, /pointermove/)
+  assert.match(source, /getBoundingClientRect/)
+  assert.match(source, /max-width:\s*767px/)
+  assert.match(source, /ArrowLeft/)
+  assert.match(source, /ArrowRight/)
+  assert.match(source, /ArrowUp/)
+  assert.match(source, /ArrowDown/)
+  assert.match(source, /event\.key === 'Home'/)
+  assert.match(source, /PinOff/)
+  assert.match(source, /RotateCcw/)
+})
+
+test('plot popup, quick filters and results keep independent draggable positions', async () => {
+  const popup = await readFile(plotPopupComponent, 'utf8')
+  const quickFilters = await readFile(quickFiltersComponent, 'utf8')
+  const results = await readFile(plotCardListComponent, 'utf8')
+
+  assert.match(popup, /DraggableMapPanel/)
+  assert.match(popup, /landsearch:panel:plot/)
+  assert.match(popup, /PanelPositionControls/)
+  assert.match(popup, /dragHandleProps/)
+
+  assert.match(quickFilters, /DraggableMapPanel/)
+  assert.match(quickFilters, /landsearch:panel:quick-filters/)
+  assert.match(quickFilters, /PanelPositionControls/)
+  assert.match(quickFilters, /dragHandleProps/)
+
+  assert.match(results, /DraggableMapPanel/)
+  assert.match(results, /landsearch:panel:results/)
+  assert.match(results, /PanelPositionControls/)
+  assert.match(results, /dragHandleProps/)
+  assert.match(results, /GripVertical/)
+  assert.match(results, /disabled=\{maximized\}/)
+})
+
+test('plot popup shows price per sotka and NSPD source context', async () => {
+  const popup = await readFile(plotPopupComponent, 'utf8')
+
+  assert.match(popup, /Цена за сотку/)
+  assert.match(popup, /Источник: NSPD/)
+  assert.match(popup, /updated_at/)
 })
 
 test('login form labels are associated with their inputs for mouse and keyboard users', async () => {

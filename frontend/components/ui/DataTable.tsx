@@ -90,17 +90,24 @@ function FacetedFilter<TData>({
   column,
   title,
   options,
+  singleSelect = false,
+  onChange,
 }: {
   column: Column<TData, unknown>
   title: string
   options: { label: string; value: string; icon?: ReactNode }[]
+  singleSelect?: boolean
+  onChange?: (values: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
   const selected = (column.getFilterValue() as string[]) ?? []
 
   const toggle = (value: string) => {
-    const next = selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]
+    const next = selected.includes(value)
+      ? selected.filter((v) => v !== value)
+      : singleSelect ? [value] : [...selected, value]
     column.setFilterValue(next.length ? next : undefined)
+    onChange?.(next)
   }
 
   return (
@@ -147,7 +154,10 @@ function FacetedFilter<TData>({
             })}
             {selected.length > 0 && (
               <button
-                onClick={() => column.setFilterValue(undefined)}
+                onClick={() => {
+                  column.setFilterValue(undefined)
+                  onChange?.([])
+                }}
                 className="w-full px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded mt-1 border-t"
               >
                 Сбросить
@@ -284,15 +294,48 @@ function Pagination({ table }: { table: Table<any> }) {
 }
 
 // -- Resize handle --
-function ResizeHandle({ header }: { header: import('@tanstack/react-table').Header<any, unknown> }) {
+function ResizeHandle({
+  header,
+  table,
+}: {
+  header: import('@tanstack/react-table').Header<any, unknown>
+  table: Table<any>
+}) {
   const column = header.column
+  const minSize = column.columnDef.minSize ?? 40
+  const maxSize = column.columnDef.maxSize ?? 800
+  const headerLabel = column.id === 'select'
+    ? 'Выбор строк'
+    : typeof column.columnDef.header === 'string'
+      ? column.columnDef.header
+      : column.id
   return (
-    <div
+    <button
+      type="button"
+      aria-label={`Изменить ширину колонки ${headerLabel}`}
+      aria-valuemin={minSize}
+      aria-valuemax={maxSize}
+      aria-valuenow={column.getSize()}
       onDoubleClick={() => column.resetSize()}
       onMouseDown={header.getResizeHandler()}
       onTouchStart={header.getResizeHandler()}
-      className={`absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none ${
-        column.getIsResizing() ? 'bg-blue-500' : 'bg-gray-200 hover:bg-blue-400'
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault()
+          table.setColumnSizing((current) => ({
+            ...current,
+            [column.id]: Math.min(maxSize, Math.max(minSize, column.getSize() + (event.key === 'ArrowRight' ? 16 : -16))),
+          }))
+        } else if (event.key === 'Home') {
+          event.preventDefault()
+          table.setColumnSizing((current) => ({ ...current, [column.id]: minSize }))
+        } else if (event.key === 'End') {
+          event.preventDefault()
+          table.setColumnSizing((current) => ({ ...current, [column.id]: maxSize }))
+        }
+      }}
+      className={`absolute right-0 top-0 h-full w-2 cursor-col-resize select-none touch-none rounded-full border-0 ${
+        column.getIsResizing() ? 'bg-[var(--ls-green)]' : 'bg-transparent hover:bg-[var(--ls-line)]'
       }`}
     />
   )
@@ -304,7 +347,7 @@ interface DataTableProps<TData> {
   columns: ColumnDef<TData, any>[]
   searchPlaceholder?: string
   searchColumn?: string
-  facetedFilters?: { columnId: string; title: string; options: { label: string; value: string; icon?: ReactNode }[] }[]
+  facetedFilters?: { columnId: string; title: string; options: { label: string; value: string; icon?: ReactNode }[]; singleSelect?: boolean }[]
   pageSize?: number
   loading?: boolean
   loadingRows?: number
@@ -314,6 +357,15 @@ interface DataTableProps<TData> {
   exportFilename?: string
   children?: ReactNode
   toolbar?: ReactNode
+  hidePagination?: boolean
+  manualPagination?: boolean
+  searchValue?: string
+  onSearchChange?: (value: string) => void
+  onFacetedFilterChange?: (columnId: string, values: string[]) => void
+  manualFiltering?: boolean
+  selectionResetToken?: number
+  selectAllRows?: boolean
+  onSelectAllPage?: (selected: boolean) => void
 }
 
 export function DataTable<TData>({
@@ -331,6 +383,15 @@ export function DataTable<TData>({
   exportFilename = 'export',
   children,
   toolbar,
+  hidePagination = false,
+  manualPagination = false,
+  searchValue,
+  onSearchChange,
+  onFacetedFilterChange,
+  manualFiltering = false,
+  selectionResetToken = 0,
+  selectAllRows = false,
+  onSelectAllPage,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -339,18 +400,30 @@ export function DataTable<TData>({
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize })
 
+  useEffect(() => {
+    setPagination((current) => current.pageSize === pageSize ? current : { pageIndex: 0, pageSize })
+  }, [pageSize])
+
   const allColumns = useMemo<ColumnDef<TData, any>[]>(() => {
     if (!enableRowSelection) return columns
     return [
       {
         id: 'select',
-        header: ({ table }) => (
-          <IndeterminateCheckbox
-            checked={table.getIsAllPageRowsSelected()}
-            indeterminate={table.getIsSomePageRowsSelected()}
-            onChange={table.getToggleAllPageRowsSelectedHandler()}
-          />
-        ),
+        header: ({ table }) => {
+          const pageSelected = table.getIsAllPageRowsSelected()
+          const checked = selectAllRows || pageSelected
+          return (
+            <IndeterminateCheckbox
+              checked={checked}
+              indeterminate={!selectAllRows && table.getIsSomePageRowsSelected()}
+              onChange={() => {
+                const next = !checked
+                table.toggleAllPageRowsSelected(next)
+                onSelectAllPage?.(next)
+              }}
+            />
+          )
+        },
         cell: ({ row }) => (
           <IndeterminateCheckbox
             checked={row.getIsSelected()}
@@ -363,7 +436,7 @@ export function DataTable<TData>({
       },
       ...columns,
     ]
-  }, [columns, enableRowSelection])
+  }, [columns, enableRowSelection, onSelectAllPage, selectAllRows])
 
   const table = useReactTable({
     data,
@@ -371,10 +444,10 @@ export function DataTable<TData>({
     state: {
       sorting,
       columnFilters,
-      globalFilter,
       columnVisibility,
       rowSelection,
       pagination,
+      globalFilter: searchValue ?? globalFilter,
     },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -390,6 +463,8 @@ export function DataTable<TData>({
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
     columnResizeMode: 'onChange',
+    manualPagination,
+    manualFiltering,
     initialState: { pagination: { pageSize } },
   })
 
@@ -409,12 +484,18 @@ export function DataTable<TData>({
     }
   }, [rowSelection, table, onRowSelect])
 
+  useEffect(() => {
+    setRowSelection({})
+  }, [selectionResetToken])
+
   const filterValue = searchColumn
     ? (table.getColumn(searchColumn)?.getFilterValue() as string) ?? ''
-    : globalFilter
+    : searchValue ?? globalFilter
 
   const setFilterValue = (val: string) => {
-    if (searchColumn) {
+    if (onSearchChange) {
+      onSearchChange(val)
+    } else if (searchColumn) {
       table.getColumn(searchColumn)?.setFilterValue(val)
     } else {
       setGlobalFilter(val)
@@ -425,11 +506,11 @@ export function DataTable<TData>({
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="overflow-hidden rounded-md border border-[var(--ls-line)] bg-[var(--ls-surface)] shadow-sm">
         {children}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-[var(--ls-paper)]">
               <tr>
                 {columns.map((col, i) => (
                   <th key={i} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
@@ -456,7 +537,7 @@ export function DataTable<TData>({
   }
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
+    <div className="overflow-hidden rounded-md border border-[var(--ls-line)] bg-[var(--ls-surface)] shadow-sm">
       {children}
 
       {/* Toolbar */}
@@ -466,7 +547,7 @@ export function DataTable<TData>({
             value={filterValue}
             onChange={(e) => setFilterValue(e.target.value)}
             placeholder={searchPlaceholder}
-            className="flex-1 min-w-[200px] max-w-sm px-3 py-1.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="min-h-11 w-full max-w-sm flex-1 rounded-md border border-[var(--ls-line)] bg-[var(--ls-paper)] px-3 py-1.5 text-sm focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
           {facetedFilters.map((f) => {
@@ -478,6 +559,8 @@ export function DataTable<TData>({
                 column={col}
                 title={f.title}
                 options={f.options}
+                singleSelect={f.singleSelect}
+                onChange={(values) => onFacetedFilterChange?.(f.columnId, values)}
               />
             )
           })}
@@ -488,6 +571,10 @@ export function DataTable<TData>({
                 setColumnFilters([])
                 setGlobalFilter('')
                 if (searchColumn) table.getColumn(searchColumn)?.setFilterValue(undefined)
+                facetedFilters.forEach((f) => {
+                  table.getColumn(f.columnId)?.setFilterValue(undefined)
+                  onFacetedFilterChange?.(f.columnId, [])
+                })
               }}
               className="flex items-center gap-1 px-2 py-1 text-xs text-red-600 hover:bg-red-50 border border-red-200 rounded-lg"
             >
@@ -516,10 +603,10 @@ export function DataTable<TData>({
       {/* Table */}
       <div className="overflow-x-auto">
         <table
-          className="w-full text-sm"
+          className="w-full min-w-full table-fixed text-sm"
           style={{ width: enableColumnResize ? table.getCenterTotalSize() : undefined }}
         >
-          <thead className="bg-gray-50">
+          <thead className="bg-[var(--ls-paper)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
@@ -539,7 +626,7 @@ export function DataTable<TData>({
                       }}
                     >
                       <div
-                        className="flex items-center gap-1"
+                        className="flex min-w-0 items-center gap-1 whitespace-normal break-words"
                         onClick={header.column.getToggleSortingHandler()}
                       >
                         {flexRender(header.column.columnDef.header, header.getContext())}
@@ -556,7 +643,7 @@ export function DataTable<TData>({
                         )}
                       </div>
                       {enableColumnResize && header.column.getCanResize() && (
-                        <ResizeHandle header={header} />
+                        <ResizeHandle header={header} table={table} />
                       )}
                     </th>
                   )
@@ -589,7 +676,7 @@ export function DataTable<TData>({
                       return (
                         <td
                           key={cell.id}
-                          className={`px-3 py-2 ${
+                          className={`px-3 py-2 whitespace-normal break-words align-top ${
                             pinned ? 'sticky z-10 bg-white' : ''
                           } ${
                             pinned === 'left' ? 'left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''
@@ -597,6 +684,7 @@ export function DataTable<TData>({
                             pinned === 'right' ? 'right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''
                           }`}
                           style={{
+                            width: cell.column.getSize(),
                             ...(pinned === 'left' ? { left: cell.column.getStart('left') } : {}),
                             ...(pinned === 'right' ? { right: cell.column.getAfter('right') } : {}),
                           }}
@@ -613,7 +701,7 @@ export function DataTable<TData>({
         </table>
       </div>
 
-      <Pagination table={table} />
+      {!hidePagination && <Pagination table={table} />}
     </div>
   )
 }

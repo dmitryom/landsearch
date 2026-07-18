@@ -4,8 +4,10 @@ import { useCallback, useEffect, useState, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { api, type SettlementAnalysis, type PlotGeoJSON } from '@/lib/api'
-import { STATUS_COLORS, BASE_LAYERS } from '@/lib/constants'
+import { api, type SettlementAnalysis } from '@/lib/api'
+import { STATUS_COLORS, BASE_LAYERS, DEFAULT_BASE_LAYER_ID } from '@/lib/constants'
+import { buildPlotTileUrl } from '@/lib/map-tiles'
+import { addPlotTileLayers } from '@/lib/plot-map-layers'
 import { Home, ArrowLeft, Map as MapIcon } from 'lucide-react'
 import Link from 'next/link'
 
@@ -16,7 +18,7 @@ export default function SettlementAnalysisPage() {
   const [analysis, setAnalysis] = useState<SettlementAnalysis | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [baseLayer, setBaseLayer] = useState('satellite')
+  const [baseLayer, setBaseLayer] = useState(DEFAULT_BASE_LAYER_ID)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const reinitGuard = useRef(false)
   const appliedBaseLayerRef = useRef(baseLayer)
@@ -41,13 +43,10 @@ export default function SettlementAnalysisPage() {
     reinitGuard.current = true
 
     try {
-      const [settlement, geo] = await Promise.all([
-        api.settlements.get(id),
-        api.plots.geo({ settlement_id: id }),
-      ])
+      const settlement = await api.settlements.get(id, { include_plots: false })
 
       const safeAdd = () => {
-        addLayers(map, settlement.geometry, geo)
+        addLayers(map, settlement.geometry, id)
       }
 
       if (!map.isStyleLoaded()) {
@@ -105,14 +104,6 @@ export default function SettlementAnalysisPage() {
     setBaseLayer(layerId)
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="w-12 h-12 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
-      </div>
-    )
-  }
-
   const vriEntries = analysis
     ? Object.entries(analysis.vri_summary).sort((a, b) => b[1] - a[1])
     : []
@@ -124,7 +115,7 @@ export default function SettlementAnalysisPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50" aria-busy={loading}>
       <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3">
         <Link href="/" className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
           <ArrowLeft className="w-5 h-5" />
@@ -147,6 +138,11 @@ export default function SettlementAnalysisPage() {
       {/* Map */}
       <div className="relative w-full" style={{ height: '400px' }}>
         <div id="settlement-map" className="w-full h-full" />
+        {loading && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-gray-100/70 backdrop-blur-[1px]" role="status" aria-live="polite">
+            <div className="w-10 h-10 border-4 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+          </div>
+        )}
         <div className="absolute top-4 right-4 z-10">
           <div className="bg-white rounded-lg shadow-lg border p-1 flex gap-1">
             {BASE_LAYERS.map((layer) => (
@@ -160,7 +156,7 @@ export default function SettlementAnalysisPage() {
                 }`}
                 title={layer.name}
               >
-                <span>{layer.icon}</span>
+                <MapIcon className="h-4 w-4" aria-hidden="true" />
                 <span className="hidden sm:inline">{layer.name}</span>
               </button>
             ))}
@@ -266,7 +262,7 @@ export default function SettlementAnalysisPage() {
           </>
         )}
 
-        {!analysis && !analysisError && (
+        {!analysis && !analysisError && !loading && (
           <div className="text-center py-12 text-gray-400">Нет данных для отображения</div>
         )}
       </main>
@@ -274,7 +270,7 @@ export default function SettlementAnalysisPage() {
   )
 }
 
-function addLayers(map: maplibregl.Map, geometry: Record<string, unknown> | undefined, geo: PlotGeoJSON) {
+function addLayers(map: maplibregl.Map, geometry: Record<string, unknown> | undefined, settlementId: string) {
   if (geometry) {
     const sourceId = 'settlement-boundary'
     if (!map.getSource(sourceId)) {
@@ -313,60 +309,11 @@ function addLayers(map: maplibregl.Map, geometry: Record<string, unknown> | unde
     }
   }
 
-  if (geo?.features?.length) {
-    const sourceId = 'settlement-plots'
-    if (!map.getSource(sourceId)) {
-      map.addSource(sourceId as any, {
-        type: 'geojson',
-        data: geo as any,
-      } as any)
-
-      map.addLayer({
-        id: 'settlement-plots-fill',
-        type: 'fill',
-        source: sourceId,
-        paint: {
-          'fill-color': ['match', ['get', 'status'],
-            'free', STATUS_COLORS['free'],
-            'reserved', STATUS_COLORS['reserved'],
-            'booked', STATUS_COLORS['booked'],
-            'sold', STATUS_COLORS['sold'],
-            STATUS_COLORS['free'],
-          ],
-          'fill-opacity': 0.5,
-        },
-      } as any)
-
-      map.addLayer({
-        id: 'settlement-plots-border',
-        type: 'line',
-        source: sourceId,
-        paint: {
-          'line-color': ['match', ['get', 'status'],
-            'free', STATUS_COLORS['free'],
-            'reserved', STATUS_COLORS['reserved'],
-            'booked', STATUS_COLORS['booked'],
-            'sold', STATUS_COLORS['sold'],
-            STATUS_COLORS['free'],
-          ],
-          'line-width': 1.5,
-          'line-opacity': 0.8,
-        },
-      } as any)
-    } else {
-      const source = map.getSource(sourceId) as maplibregl.GeoJSONSource
-      source.setData(geo as any)
-    }
-  }
+  addPlotTileLayers(map, buildPlotTileUrl({ settlement_id: settlementId }))
 
   const bounds = new maplibregl.LngLatBounds()
   if (geometry) {
     extractCoords(geometry).forEach((c) => bounds.extend(c as [number, number]))
-  }
-  if (geo?.features?.length && bounds.isEmpty()) {
-    geo.features.forEach((f) => {
-      extractCoords(f.geometry as Record<string, unknown>).forEach((c) => bounds.extend(c as [number, number]))
-    })
   }
   if (!bounds.isEmpty()) {
     map.fitBounds(bounds, { padding: 50 })

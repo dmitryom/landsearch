@@ -94,13 +94,14 @@ export default function AdminLeadsPage() {
     <div>
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Лиды</h1>
-          <p className="text-sm text-gray-500">Заявки покупателей по участкам</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--ls-green)]">Продажи</p>
+          <h1 className="text-2xl font-bold text-[var(--ls-ink)]">Лиды</h1>
+          <p className="text-sm text-[var(--ls-muted)]">Заявки покупателей по участкам</p>
         </div>
         <button
           type="button"
           onClick={loadLeads}
-          className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--ls-line)] bg-[var(--ls-surface)] px-3 py-2 text-sm font-medium text-[var(--ls-ink)] hover:bg-[var(--ls-paper)]"
         >
           <RefreshCcw className="h-4 w-4" />
           Обновить
@@ -109,9 +110,9 @@ export default function AdminLeadsPage() {
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {LEAD_STATUSES.map((status) => (
-          <div key={status.value} className="rounded-md border bg-white p-4">
-            <p className="text-sm text-gray-500">{status.label}</p>
-            <p className="mt-1 text-2xl font-bold text-gray-900">{totals[status.value]}</p>
+          <div key={status.value} className="rounded-md border border-[var(--ls-line)] bg-[var(--ls-surface)] p-4 shadow-sm">
+            <p className="text-sm text-[var(--ls-muted)]">{status.label}</p>
+            <p className="mt-1 text-2xl font-bold text-[var(--ls-ink)]">{totals[status.value]}</p>
           </div>
         ))}
       </div>
@@ -122,7 +123,7 @@ export default function AdminLeadsPage() {
         </div>
       )}
 
-      <div className="overflow-hidden rounded-md border bg-white">
+      <div className="overflow-hidden rounded-md border border-[var(--ls-line)] bg-[var(--ls-surface)] shadow-sm">
         {leads.length === 0 ? (
           <div className="p-8 text-center text-sm text-gray-500">Заявок пока нет</div>
         ) : (

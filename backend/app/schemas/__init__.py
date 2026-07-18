@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..models import PlotStatus
 
@@ -58,21 +58,49 @@ class PlotCreate(BaseModel):
 
 
 class PlotUpdate(BaseModel):
-    address: str | None = Field(None, max_length=500)
-    area_m2: float | None = Field(None, ge=0)
-    category: str | None = Field(None, max_length=100)
-    permitted_use: str | None = Field(None, max_length=255)
-    cadastral_value: float | None = Field(None, ge=0)
-    cad_unit: str | None = Field(None, max_length=100)
-    object_type: str | None = Field(None, max_length=100)
-    land_plot_type: str | None = Field(None, max_length=100)
-    registration_date: str | None = Field(None, max_length=50)
-    ownership_form: str | None = Field(None, max_length=100)
     price: float | None = Field(None, ge=0)
     status: PlotStatus | None = None
     title: str | None = Field(None, max_length=500)
     description: str | None = None
     photos: list[str] | None = None
+
+    # Cadastral fields are read-only in the API: NSPD is the source of truth.
+    model_config = ConfigDict(extra="forbid")
+
+
+class BulkPlotStatusUpdate(BaseModel):
+    plot_ids: list[str] | None = Field(default=None, max_length=1000)
+    status: PlotStatus
+    all_plots: bool = False
+    query: str | None = Field(default=None, max_length=500)
+    filter_status: PlotStatus | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.all_plots:
+            if self.plot_ids:
+                raise ValueError("plot_ids cannot be combined with all_plots")
+            return self
+        if not self.plot_ids:
+            raise ValueError("plot_ids or all_plots is required")
+        return self
+
+
+class BulkPlotDelete(BaseModel):
+    plot_ids: list[str] | None = Field(default=None, max_length=1000)
+    all_plots: bool = False
+    query: str | None = Field(default=None, max_length=500)
+    filter_status: PlotStatus | None = None
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if self.all_plots:
+            if self.plot_ids:
+                raise ValueError("plot_ids cannot be combined with all_plots")
+            return self
+        if not self.plot_ids:
+            raise ValueError("plot_ids or all_plots is required")
+        return self
 
 
 class PlotResponse(BaseModel):
@@ -135,6 +163,25 @@ class SettlementBase(BaseModel):
     address: str | None = Field(None, max_length=500)
     region: str | None = Field(None, max_length=100)
     district: str | None = Field(None, max_length=100)
+
+
+class SettlementCreate(SettlementBase):
+    pass
+
+
+class SettlementBulkCreate(BaseModel):
+    items: list[SettlementCreate] = Field(..., min_length=1, max_length=100)
+
+
+class SettlementBoundaryUpdate(BaseModel):
+    mode: Literal["polygon", "radius", "clear"]
+    geometry: dict[str, Any] | None = None
+    radius_m: float | None = Field(None, ge=0, le=100_000)
+
+
+class SettlementBoundaryPreview(BaseModel):
+    plot_count: int
+    by_status: dict[str, int]
 
 
 class SettlementResponse(SettlementBase):
