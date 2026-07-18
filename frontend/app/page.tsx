@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import type maplibregl from 'maplibre-gl'
 import { api } from '@/lib/api'
@@ -37,6 +37,11 @@ const URL_FILTER_KEYS = [
   'sort_order',
 ] as const
 
+export function getPublicCatalogFilters(filters: Record<string, string>) {
+  if (filters.settlement_id || filters.query?.trim()) return filters
+  return { ...filters, settlements_only: 'true' }
+}
+
 export default function HomePage() {
   const mapRef = useRef<maplibregl.Map | null>(null)
   const loadIdRef = useRef(0)
@@ -64,6 +69,7 @@ export default function HomePage() {
   const [searchResetToken, setSearchResetToken] = useState(0)
   const [filterRailWidth, setFilterRailWidth] = usePersistentLayout('landsearch:filter-rail-width', 288, 240, 420)
   const [resultTrayHeight, setResultTrayHeight] = usePersistentLayout('landsearch:result-tray-height', 248, 176, 680)
+  const publicCatalogFilters = useMemo(() => getPublicCatalogFilters(filters), [filters])
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 767px)')
@@ -127,8 +133,8 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!filtersReady) return
-    loadData(filters)
-  }, [filters, filtersReady, loadData])
+    loadData(publicCatalogFilters)
+  }, [filtersReady, loadData, publicCatalogFilters])
 
   useEffect(() => {
     const settlementId = filters.settlement_id
@@ -354,7 +360,7 @@ export default function HomePage() {
           <div className="absolute inset-0 z-0">
             <MapView
               mapRef={mapRef}
-              filters={filters}
+              filters={publicCatalogFilters}
               resultBounds={resultBounds}
               boundaryGeometry={selectedSettlement?.geometry}
               selectedPlot={selectedPlot}
@@ -403,7 +409,7 @@ export default function HomePage() {
               map={mapRef.current}
               currentLayer={baseLayer}
               onChange={setBaseLayer}
-              filters={filters}
+              filters={publicCatalogFilters}
               showRoads={showRoads}
               onRoadsChange={setShowRoads}
               showSettlementPois={showSettlementPois}

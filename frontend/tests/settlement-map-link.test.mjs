@@ -119,6 +119,38 @@ test('home land search filters are applied to map vector tile requests', async (
   assert.match(mapTiles, /'category'/)
 })
 
+test('empty public map scopes colored inventory to all settlements without narrowing direct search', async () => {
+  const home = await readFile(homePage, 'utf8')
+  const mapTiles = await readFile(mapTilesModule, 'utf8')
+
+  assert.match(home, /export function getPublicCatalogFilters\(filters: Record<string, string>\)/)
+  assert.match(home, /if \(filters\.settlement_id \|\| filters\.query\?\.trim\(\)\) return filters/)
+  assert.match(home, /return \{ \.\.\.filters, settlements_only: 'true' \}/)
+  assert.match(home, /const publicCatalogFilters = useMemo\(\(\) => getPublicCatalogFilters\(filters\), \[filters\]\)/)
+  assert.match(home, /loadData\(publicCatalogFilters\)/)
+  assert.match(home, /<MapView[\s\S]*filters=\{publicCatalogFilters\}/)
+  assert.match(home, /<LayerSwitcher[\s\S]*filters=\{publicCatalogFilters\}/)
+  assert.match(mapTiles, /'settlements_only'/)
+
+  const urlFilterStart = home.indexOf('const URL_FILTER_KEYS')
+  const urlFilterEnd = home.indexOf('] as const', urlFilterStart)
+  const urlFilterBlock = home.slice(urlFilterStart, urlFilterEnd)
+  assert.doesNotMatch(urlFilterBlock, /settlements_only/)
+})
+
+test('neutral NSPD cadastre has an independent toggle without moving the viewport', async () => {
+  const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
+  const toggleStart = layerSwitcher.indexOf('const toggleMaster')
+  const toggleEnd = layerSwitcher.indexOf('const CurrentIcon', toggleStart)
+  const toggleBlock = layerSwitcher.slice(toggleStart, toggleEnd)
+
+  assert.notEqual(toggleStart, -1)
+  assert.match(layerSwitcher, /Нейтральный кадастр NSPD/)
+  assert.match(layerSwitcher, /Все кадастровые объекты Татарстана/)
+  assert.doesNotMatch(toggleBlock, /fitBounds/)
+  assert.doesNotMatch(layerSwitcher, /TATARSTAN_BOUNDS/)
+})
+
 test('public map shows clustered POIs from all settlements', async () => {
   const mapView = await readFile(mapViewComponent, 'utf8')
   const poiMap = await readFile(settlementPoiMap, 'utf8')

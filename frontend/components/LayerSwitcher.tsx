@@ -5,7 +5,7 @@ import { Building2, Database, Layers, Map, MapPinned, Satellite, Route, ShieldAl
 import maplibregl from 'maplibre-gl'
 import { BASE_LAYERS } from '@/lib/constants'
 import { log } from '@/lib/logger'
-import { buildPlotTileUrl, TATARSTAN_BOUNDS } from '@/lib/map-tiles'
+import { buildPlotTileUrl } from '@/lib/map-tiles'
 import {
   addPlotTileLayers,
   DEFAULT_NSPD_LAYER_VISIBILITY,
@@ -135,10 +135,7 @@ export default function LayerSwitcher({
 
   const toggleMaster = (enabled: boolean) => {
     onTatarstanCadastreChange(enabled)
-    if (enabled && map?.isStyleLoaded()) {
-      setTatarstanCadastreLayer(map, true, nspdLayerVisibility, nspdOpacity)
-      map.fitBounds(TATARSTAN_BOUNDS, { padding: 48, maxZoom: 9, duration: 700 })
-    }
+    if (map?.isStyleLoaded()) setTatarstanCadastreLayer(map, enabled, nspdLayerVisibility, nspdOpacity)
   }
 
   const CurrentIcon = BASE_ICONS[currentLayer as keyof typeof BASE_ICONS] || Layers
@@ -226,13 +223,13 @@ export default function LayerSwitcher({
                   id="tatarstan-cadastre"
                   type="checkbox"
                   checked={showTatarstanCadastre}
-                  aria-label="Показать кадастр Татарстана"
+                  aria-label="Показать нейтральный кадастр NSPD"
                   onChange={(event) => toggleMaster(event.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[var(--ls-green)] focus:ring-[var(--ls-green)]"
                 />
                 <label htmlFor="tatarstan-cadastre" className="min-w-0 text-xs font-semibold text-[var(--ls-ink)]">
-                  Кадастр Татарстана
-                  <span className="mt-0.5 block text-[10px] font-normal text-[var(--ls-muted)]">Официальные слои NSPD</span>
+                  Нейтральный кадастр NSPD
+                  <span className="mt-0.5 block text-[10px] font-normal text-[var(--ls-muted)]">Все кадастровые объекты Татарстана</span>
                 </label>
               </div>
               <div className="mt-2 grid gap-1">

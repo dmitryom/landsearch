@@ -4,7 +4,7 @@ export const TATARSTAN_REGION = 'Республика Татарстан'
 export const TATARSTAN_BOUNDS: [[number, number], [number, number]] = [[46.5, 53.5], [55.9, 56.7]]
 export const NSPD_CADASTRAL_LAYER_IDS = [36048, 36049, 36328, 36329] as const
 
-const TILE_FILTER_KEYS = ['query', 'status', 'permitted_use', 'category', 'cad_unit', 'settlement_id', 'region'] as const
+const TILE_FILTER_KEYS = ['query', 'status', 'permitted_use', 'category', 'cad_unit', 'settlement_id', 'settlements_only', 'region'] as const
 
 export function buildPlotTileUrl(filters: Record<string, string> = {}): string {
   const params = new URLSearchParams()
