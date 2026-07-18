@@ -148,7 +148,7 @@ export default function LayerSwitcher({
       </button>
 
       {open && (
-        <div className="ls-panel absolute right-0 top-full z-40 mt-1 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden">
+        <div className="ls-panel absolute -right-9 top-full z-40 mt-1 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden sm:right-0">
           <div className="grid grid-cols-2 gap-1 border-b border-[var(--ls-line)] p-1">
             <button type="button" onClick={() => setSection('basemap')} className={`min-h-11 rounded-md px-3 text-xs font-semibold ${section === 'basemap' ? 'bg-[#e4f1ec] text-[var(--ls-green-dark)]' : 'text-[var(--ls-muted)] hover:bg-[#fbfdfb]'}`}>
               <span className="flex items-center justify-center gap-1.5"><Map className="h-4 w-4" aria-hidden="true" /> Подложка</span>

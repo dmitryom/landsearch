@@ -212,6 +212,7 @@ test('public maps expose and persist the OSM road layer across style switches', 
   assert.match(layerSwitcher, /Дороги/)
   assert.match(layerSwitcher, /Нейтральный асфальт/)
   assert.match(layerSwitcher, /OpenStreetMap/)
+  assert.match(layerSwitcher, /-right-9[\s\S]{0,120}sm:right-0/)
   assert.match(layerSwitcher, /addRoadLayers\(map, showRoads\)[\s\S]{0,160}addPlotTileLayers/)
   assert.match(layerSwitcher, /setRoadLayerVisibility/)
 
