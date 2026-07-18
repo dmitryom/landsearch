@@ -1,7 +1,8 @@
+import enum
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..models import PlotStatus
 
@@ -252,3 +253,81 @@ class LeadResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PoiType(str, enum.Enum):
+    shop = "shop"
+    playground = "playground"
+    sports = "sports"
+    checkpoint = "checkpoint"
+    entrance = "entrance"
+    exit = "exit"
+    parking = "parking"
+    school = "school"
+    kindergarten = "kindergarten"
+    cafe = "cafe"
+    medical = "medical"
+    sales_office = "sales_office"
+    other = "other"
+
+
+class _SettlementPoiFields(BaseModel):
+    poi_type: PoiType | None = None
+    custom_type_label: str | None = Field(None, max_length=100)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = Field(None, max_length=2000)
+    longitude: float | None = Field(None, ge=-180, le=180)
+    latitude: float | None = Field(None, ge=-90, le=90)
+    is_published: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("POI name is required")
+        return value.strip() if value is not None else value
+
+    @field_validator("custom_type_label")
+    @classmethod
+    def normalize_custom_type_label(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else value
+
+
+class SettlementPoiCreate(_SettlementPoiFields):
+    settlement_id: str
+    poi_type: PoiType
+    name: str = Field(..., min_length=1, max_length=255)
+    longitude: float = Field(..., ge=-180, le=180)
+    latitude: float = Field(..., ge=-90, le=90)
+    is_published: bool = True
+
+    @model_validator(mode="after")
+    def validate_custom_type(self):
+        if self.poi_type == PoiType.other and not self.custom_type_label:
+            raise ValueError("Custom type label is required for other POIs")
+        return self
+
+
+class SettlementPoiUpdate(_SettlementPoiFields):
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_custom_type(self):
+        if self.poi_type == PoiType.other and not self.custom_type_label:
+            raise ValueError("Custom type label is required when changing POI type to other")
+        return self
+
+
+class SettlementPoiResponse(BaseModel):
+    id: str
+    tenant_id: str
+    settlement_id: str
+    poi_type: PoiType
+    custom_type_label: str | None = None
+    name: str
+    description: str | None = None
+    longitude: float
+    latitude: float
+    is_published: bool
+    created_at: datetime
+    updated_at: datetime

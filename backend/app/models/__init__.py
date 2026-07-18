@@ -59,6 +59,7 @@ class Tenant(Base):
     settlements = relationship("Settlement", back_populates="tenant")
     plots = relationship("Plot", back_populates="tenant")
     leads = relationship("Lead", back_populates="tenant")
+    pois = relationship("SettlementPoi", back_populates="tenant")
 
 
 class User(Base):
@@ -97,6 +98,7 @@ class Settlement(Base):
 
     tenant = relationship("Tenant", back_populates="settlements")
     plots = relationship("Plot", back_populates="settlement")
+    pois = relationship("SettlementPoi", back_populates="settlement", cascade="all, delete-orphan")
 
 
 class Plot(Base):
@@ -159,6 +161,30 @@ class PlotStatusHistory(Base):
     changed_at = Column(DateTime(timezone=True), server_default=func.now())
 
     plot = relationship("Plot", back_populates="status_history")
+
+
+class SettlementPoi(Base):
+    __tablename__ = "settlement_pois"
+    __table_args__ = (
+        Index("idx_settlement_pois_geometry", "geometry", postgresql_using="gist"),
+        Index("idx_settlement_pois_tenant_published", "tenant_id", "is_published"),
+        Index("idx_settlement_pois_settlement_id", "settlement_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    settlement_id = Column(UUID(as_uuid=True), ForeignKey("settlements.id", ondelete="CASCADE"), nullable=False)
+    poi_type = Column(String(32), nullable=False)
+    custom_type_label = Column(String(100))
+    name = Column(String(255), nullable=False)
+    description = Column(Text)
+    geometry = Column(Geometry(geometry_type="POINT", srid=4326, spatial_index=False), nullable=False)
+    is_published = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    tenant = relationship("Tenant", back_populates="pois")
+    settlement = relationship("Settlement", back_populates="pois")
 
 
 class Lead(Base):

@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 
-from .api.v1 import auth, imports, layers, leads, plots, search, settlements, sheets_import
+from .api.v1 import auth, imports, layers, leads, plots, pois, search, settlements, sheets_import
 from .core.config import settings
 from .core.database import engine
 from .core.middleware import RequestLoggingMiddleware, SecurityHeadersMiddleware
@@ -47,6 +47,7 @@ app.include_router(imports.router, prefix="/api/v1")
 app.include_router(layers.router, prefix="/api/v1")
 app.include_router(leads.router, prefix="/api/v1")
 app.include_router(sheets_import.router, prefix="/api/v1")
+app.include_router(pois.router, prefix="/api/v1")
 
 
 @app.get("/metrics")
