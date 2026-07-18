@@ -38,6 +38,22 @@ def test_settlement_boundary_scopes_require_more_than_half_plot_coverage():
     assert "&&" in plot_scope
 
 
+def test_settlements_only_scope_filters_unlinked_plots():
+    enabled_scope = str(
+        plots_api._apply_settlements_only_scope(
+            plots_api.select(plots_api.Plot), True
+        )
+    )
+    disabled_scope = str(
+        plots_api._apply_settlements_only_scope(
+            plots_api.select(plots_api.Plot), False
+        )
+    )
+
+    assert "plots.settlement_id IS NOT NULL" in enabled_scope
+    assert "plots.settlement_id IS NOT NULL" not in disabled_scope
+
+
 class _RowcountSession:
     def __init__(self, rowcount):
         self.rowcount = rowcount
@@ -294,3 +310,17 @@ async def test_plot_tiles_filters_vector_layer_by_settlement_id(monkeypatch):
     )
 
     assert cache.get_keys[0] != cache.get_keys[1]
+
+    scoped_session = _TileSession()
+    await plots_api.plot_tiles(
+        z=12,
+        x=2048,
+        y=1364,
+        settlements_only=True,
+        session=scoped_session,
+        tenant_id=tenant_id,
+    )
+
+    assert "p.settlement_id IS NOT NULL" in scoped_session.statement
+    assert cache.get_keys[2] != cache.get_keys[1]
+    assert "True" in cache.get_keys[2]

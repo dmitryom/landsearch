@@ -121,10 +121,16 @@ def _apply_settlement_boundary_scope(stmt, settlement_id: str | UUID, tenant_id:
     )
 
 
+def _apply_settlements_only_scope(stmt, enabled: bool):
+    """Restrict public catalog queries to plots assigned to any settlement."""
+    return stmt.where(Plot.settlement_id.isnot(None)) if enabled else stmt
+
+
 @router.get("", response_model=PlotListResponse)
 async def list_plots(
     query: str | None = Query(None),
     settlement_id: str | None = None,
+    settlements_only: bool = False,
     status: str | None = None,
     permitted_use: str | None = None,
     category: str | None = None,
@@ -146,6 +152,7 @@ async def list_plots(
         return PlotListResponse(items=[], total=0, page=page, page_size=page_size)
 
     stmt = select(Plot).where(Plot.is_active, Plot.tenant_id == tenant_id)
+    stmt = _apply_settlements_only_scope(stmt, settlements_only)
 
     if settlement_id:
         stmt = _apply_settlement_boundary_scope(stmt, settlement_id, tenant_id)
@@ -229,6 +236,7 @@ async def plots_geojson(
     bbox: str | None = Query(None, description="min_lng,min_lat,max_lng,max_lat"),
     query: str | None = None,
     settlement_id: str | None = None,
+    settlements_only: bool = False,
     status: str | None = None,
     permitted_use: str | None = None,
     category: str | None = None,
@@ -245,6 +253,7 @@ async def plots_geojson(
         bbox=bbox,
         query=query,
         settlement_id=settlement_id,
+        settlements_only=settlements_only,
         status=status,
         permitted_use=permitted_use,
         category=category,
@@ -269,6 +278,7 @@ async def plots_geojson(
         Plot.geometry.isnot(None),
         Plot.tenant_id == tenant_id,
     )
+    stmt = _apply_settlements_only_scope(stmt, settlements_only)
 
     if settlement_id:
         stmt = _apply_settlement_boundary_scope(stmt, settlement_id, tenant_id)
@@ -380,6 +390,7 @@ async def plot_tiles(
     y: int,
     query: str | None = None,
     settlement_id: str | None = None,
+    settlements_only: bool = False,
     status: str | None = None,
     permitted_use: str | None = None,
     category: str | None = None,
@@ -397,7 +408,7 @@ async def plot_tiles(
     settlement_uuid = _parse_uuid(settlement_id, "settlement_id") if settlement_id else None
     cache_key = (
         f"landsearch:tiles:{tenant_cache_part}:boundary-majority-v4:{z}/{x}/{y}:"
-        f"{normalized_query or ''}:{settlement_uuid or ''}:{status or ''}:{permitted_use or ''}:{category or ''}:{cad_unit or ''}:{region or ''}"
+        f"{normalized_query or ''}:{settlement_uuid or ''}:{settlements_only}:{status or ''}:{permitted_use or ''}:{category or ''}:{cad_unit or ''}:{region or ''}"
     )
 
     if cache:
@@ -417,6 +428,8 @@ async def plot_tiles(
         where_clauses.append("false")
     else:
         where_clauses.append("p.tenant_id = :tenant_id")
+    if settlements_only:
+        where_clauses.append("p.settlement_id IS NOT NULL")
     boundary_join = ""
     if settlement_uuid:
         boundary_join = """
