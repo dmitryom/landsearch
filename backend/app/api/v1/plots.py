@@ -44,6 +44,10 @@ logger = logging.getLogger(__name__)
 # make ordinary plot requests wait behind remote WMS calls.
 _NSPD_WMS_CONCURRENCY = 2
 _nspd_wms_semaphore = asyncio.BoundedSemaphore(_NSPD_WMS_CONCURRENCY)
+_NSPD_TILE_ATTEMPTS = 2
+_NSPD_TRANSPARENT_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII="
+)
 
 
 def _parse_uuid(value: str, field_name: str) -> UUID:
@@ -593,8 +597,37 @@ async def nspd_cadastre_tile(layer_id: int, z: int, x: int, y: int):
             except Exception:
                 pass
 
-        async with _nspd_wms_semaphore:
-            tile = await asyncio.to_thread(fetch_nspd_wms_tile, layer_id, z, x, y)
+        tile: bytes | None = None
+        last_error: Exception | None = None
+        for attempt in range(_NSPD_TILE_ATTEMPTS):
+            try:
+                async with _nspd_wms_semaphore:
+                    tile = await asyncio.to_thread(fetch_nspd_wms_tile, layer_id, z, x, y)
+                break
+            except ValueError:
+                raise
+            except Exception as exc:
+                last_error = exc
+                if attempt < _NSPD_TILE_ATTEMPTS - 1:
+                    await asyncio.sleep(0.2)
+
+        if tile is None:
+            logger.warning(
+                "NSPD WMS tile failed after retry layer=%s z=%s x=%s y=%s: %s",
+                layer_id,
+                z,
+                x,
+                y,
+                last_error,
+            )
+            return Response(
+                content=_NSPD_TRANSPARENT_PNG,
+                media_type="image/png",
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-LandSearch-NSPD-Fallback": "transparent",
+                },
+            )
 
         if cache:
             try:

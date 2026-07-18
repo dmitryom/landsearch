@@ -324,3 +324,56 @@ async def test_plot_tiles_filters_vector_layer_by_settlement_id(monkeypatch):
     assert "p.settlement_id IS NOT NULL" in scoped_session.statement
     assert cache.get_keys[2] != cache.get_keys[1]
     assert "True" in cache.get_keys[2]
+
+
+@pytest.mark.asyncio
+async def test_nspd_tile_retries_a_transient_upstream_failure(monkeypatch):
+    attempts = []
+
+    async def no_cache():
+        return None
+
+    async def no_sleep(_seconds):
+        return None
+
+    def flaky_fetch(*args):
+        attempts.append(args)
+        if len(attempts) == 1:
+            raise RuntimeError("temporary NSPD error")
+        return b"png-tile"
+
+    monkeypatch.setattr(plots_api, "_get_redis", no_cache)
+    monkeypatch.setattr(plots_api.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(plots_api, "fetch_nspd_wms_tile", flaky_fetch)
+
+    response = await plots_api.nspd_cadastre_tile(36048, 14, 10426, 5134)
+
+    assert response.status_code == 200
+    assert response.body == b"png-tile"
+    assert len(attempts) == 2
+
+
+@pytest.mark.asyncio
+async def test_nspd_tile_returns_transparent_png_after_retry_exhaustion(monkeypatch):
+    attempts = []
+
+    async def no_cache():
+        return None
+
+    async def no_sleep(_seconds):
+        return None
+
+    def failed_fetch(*args):
+        attempts.append(args)
+        raise RuntimeError("NSPD remains unavailable")
+
+    monkeypatch.setattr(plots_api, "_get_redis", no_cache)
+    monkeypatch.setattr(plots_api.asyncio, "sleep", no_sleep)
+    monkeypatch.setattr(plots_api, "fetch_nspd_wms_tile", failed_fetch)
+
+    response = await plots_api.nspd_cadastre_tile(36328, 14, 10426, 5134)
+
+    assert response.status_code == 200
+    assert response.body.startswith(b"\x89PNG\r\n\x1a\n")
+    assert response.headers["x-landsearch-nspd-fallback"] == "transparent"
+    assert len(attempts) == 2
