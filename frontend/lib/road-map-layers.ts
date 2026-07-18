@@ -134,8 +134,6 @@ export function setRoadLayerVisibility(map: maplibregl.Map, visible: boolean): v
 }
 
 export function addRoadLayers(map: maplibregl.Map, visible = true): void {
-  if (!map.isStyleLoaded()) return
-
   if (!map.getSource(ROAD_SOURCE_ID)) {
     map.addSource(ROAD_SOURCE_ID, {
       type: 'vector',

@@ -186,6 +186,7 @@ test('road map layers use the approved neutral asphalt palette and OpenMapTiles 
   assert.match(roads, /minzoom: 13/)
   assert.match(roads, /map\.getSource\(ROAD_SOURCE_ID\)/)
   assert.match(roads, /map\.getLayer\(layer\.id\)/)
+  assert.doesNotMatch(roads, /if \(!map\.isStyleLoaded\(\)\) return/)
   assert.match(roads, /© OpenStreetMap contributors/)
 })
 
@@ -721,7 +722,7 @@ test('Nginx proxies and caches same-origin OpenFreeMap road tiles', async () => 
   assert.match(source, /proxy_pass https:\/\/tiles\.openfreemap\.org\/planet;/)
   assert.match(source, /proxy_set_header Accept-Encoding "";/)
   assert.match(source, /sub_filter_types application\/json;/)
-  assert.match(source, /sub_filter 'https:\/\/tiles\.openfreemap\.org\/planet\/' '\/tiles\/roads\/';/)
+  assert.match(source, /sub_filter 'https:\/\/tiles\.openfreemap\.org\/planet\/' '\$scheme:\/\/\$host\/tiles\/roads\/';/)
   assert.match(source, /location \/tiles\/roads\//)
   assert.match(source, /proxy_pass https:\/\/tiles\.openfreemap\.org\/planet\//)
   assert.match(source, /proxy_cache_use_stale error timeout invalid_header updating http_500 http_502 http_503 http_504;/)
