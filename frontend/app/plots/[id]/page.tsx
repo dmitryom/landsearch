@@ -11,6 +11,7 @@ import { api, Plot } from '@/lib/api'
 import { BASE_LAYERS, DEFAULT_BASE_LAYER_ID, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { copyText } from '@/lib/clipboard'
 import { getGeometryBounds } from '@/lib/plot-bounds'
+import { addRoadLayers } from '@/lib/road-map-layers'
 
 const DETAIL_PLOT_SOURCE_ID = 'detail-plot'
 
@@ -112,7 +113,10 @@ export default function PlotDetailPage() {
     })
     mapRef.current = map
 
-    map.on('load', () => addDetailPlotLayer(map, plot, true))
+    map.on('load', () => {
+      addRoadLayers(map, true)
+      addDetailPlotLayer(map, plot, true)
+    })
 
     return () => {
       map.remove()
@@ -144,6 +148,7 @@ export default function PlotDetailPage() {
     const reinit = () => {
       if (styleReady) return
       styleReady = true
+      addRoadLayers(map, true)
       addDetailPlotLayer(map, plot)
       map.once('idle', () => window.setTimeout(finish, 4000))
       window.setTimeout(finish, 6000)

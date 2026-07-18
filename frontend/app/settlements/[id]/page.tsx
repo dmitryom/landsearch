@@ -8,6 +8,7 @@ import { api, type SettlementAnalysis } from '@/lib/api'
 import { STATUS_COLORS, BASE_LAYERS, DEFAULT_BASE_LAYER_ID } from '@/lib/constants'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
 import { addPlotTileLayers } from '@/lib/plot-map-layers'
+import { addRoadLayers } from '@/lib/road-map-layers'
 import { Home, ArrowLeft, Map as MapIcon } from 'lucide-react'
 import Link from 'next/link'
 
@@ -46,6 +47,7 @@ export default function SettlementAnalysisPage() {
       const settlement = await api.settlements.get(id, { include_plots: false })
 
       const safeAdd = () => {
+        addRoadLayers(map, true)
         addLayers(map, settlement.geometry, id)
       }
 

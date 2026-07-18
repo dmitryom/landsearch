@@ -218,6 +218,21 @@ test('public maps expose and persist the OSM road layer across style switches', 
   assert.match(persistence, /if \(hydrated\) safeSet\(key, String\(value\)\)/)
 })
 
+test('plot, settlement and boundary editor maps use the same road overlay', async () => {
+  const plotDetail = await readFile(plotDetailPage, 'utf8')
+  const settlement = await readFile(settlementPage, 'utf8')
+  const boundaryEditor = await readFile(boundaryEditorComponent, 'utf8')
+
+  for (const source of [plotDetail, settlement, boundaryEditor]) {
+    assert.match(source, /import \{ addRoadLayers \} from '@\/lib\/road-map-layers'/)
+  }
+
+  assert.match(plotDetail, /map\.on\('load', \(\) => \{[\s\S]{0,120}addRoadLayers\(map, true\)[\s\S]{0,120}addDetailPlotLayer/)
+  assert.match(plotDetail, /const reinit = \(\) => \{[\s\S]{0,180}addRoadLayers\(map, true\)[\s\S]{0,120}addDetailPlotLayer/)
+  assert.match(settlement, /const safeAdd = \(\) => \{[\s\S]{0,120}addRoadLayers\(map, true\)[\s\S]{0,120}addLayers/)
+  assert.match(boundaryEditor, /const onLoad = \(\) => \{[\s\S]{0,120}addRoadLayers\(map, true\)/)
+})
+
 test('result tray supports hidden, compact, expanded and resizable states', async () => {
   const home = await readFile(homePage, 'utf8')
   const plotCards = await readFile(plotCardListComponent, 'utf8')
