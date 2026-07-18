@@ -281,7 +281,15 @@ export default function MapView({
           : boundsOverride
             ? new maplibregl.LngLatBounds(boundsOverride)
             : map.getBounds()
-        const bbox = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')
+        const requestBounds = bounds.getEast() > bounds.getWest() && bounds.getNorth() > bounds.getSouth()
+          ? bounds
+          : map.getBounds()
+        const bbox = [
+          requestBounds.getWest(),
+          requestBounds.getSouth(),
+          requestBounds.getEast(),
+          requestBounds.getNorth(),
+        ].join(',')
         poiAbortControllerRef.current?.abort()
         const controller = new AbortController()
         poiAbortControllerRef.current = controller

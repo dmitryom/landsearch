@@ -14,6 +14,15 @@ test('POI viewport requests follow the visibility toggle without reinitializing 
   assert.match(source, /poiFetchRef\.current = fetchPoiData/)
 })
 
+test('POI requests fall back to the visible map for degenerate result bounds', async () => {
+  const source = await readFile(mapView, 'utf8')
+
+  assert.match(source, /bounds\.getEast\(\) > bounds\.getWest\(\)/)
+  assert.match(source, /bounds\.getNorth\(\) > bounds\.getSouth\(\)/)
+  assert.match(source, /\? bounds\s*:\s*map\.getBounds\(\)/)
+  assert.match(source, /requestBounds\.getWest\(\)/)
+})
+
 test('admin and public POI types keep settlement_name scoped to public features', async () => {
   const source = await readFile(apiClient, 'utf8')
 
