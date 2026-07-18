@@ -21,6 +21,7 @@ const boundaryEditorComponent = new URL('../components/admin/BoundaryEditor.tsx'
 const dataTableComponent = new URL('../components/ui/DataTable.tsx', import.meta.url)
 const draggableMapPanelComponent = new URL('../components/ui/DraggableMapPanel.tsx', import.meta.url)
 const mapViewComponent = new URL('../components/MapView.tsx', import.meta.url)
+const mapOrientationControlsComponent = new URL('../components/MapOrientationControls.tsx', import.meta.url)
 const layerSwitcherComponent = new URL('../components/LayerSwitcher.tsx', import.meta.url)
 const settlementContextComponent = new URL('../components/SettlementContextBar.tsx', import.meta.url)
 const quickFiltersComponent = new URL('../components/ui/QuickFilters.tsx', import.meta.url)
@@ -154,6 +155,21 @@ test('home map keeps the layer switcher above the selected plot popup', async ()
   const home = await readFile(homePage, 'utf8')
 
   assert.match(home, /absolute top-4 right-12 sm:right-16 z-30/)
+})
+
+test('right-side map controls show a live numeric zoom level between zoom buttons', async () => {
+  const controls = await readFile(mapOrientationControlsComponent, 'utf8')
+  const zoomInIndex = controls.indexOf('aria-label="Увеличить масштаб"')
+  const zoomLevelIndex = controls.indexOf('aria-label={`Текущий уровень масштаба ${zoom.toFixed(1)}`}')
+  const zoomOutIndex = controls.indexOf('aria-label="Уменьшить масштаб"')
+
+  assert.match(controls, /const \[zoom, setZoom\] = useState\(\(\) => map\.getZoom\(\)\)/)
+  assert.match(controls, /map\.on\('zoom', syncZoom\)/)
+  assert.match(controls, /map\.off\('zoom', syncZoom\)/)
+  assert.match(controls, /Z \{zoom\.toFixed\(1\)\}/)
+  assert.ok(zoomInIndex >= 0)
+  assert.ok(zoomInIndex < zoomLevelIndex)
+  assert.ok(zoomLevelIndex < zoomOutIndex)
 })
 
 test('plot map layers expose white cadastral borders and a status legend', async () => {
