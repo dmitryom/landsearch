@@ -1,18 +1,29 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import maplibregl, { type MapMouseEvent } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Check, Circle, Eraser, MousePointer2, RotateCcw, Save, Undo2 } from 'lucide-react'
-import { api, type Settlement, type SettlementBoundaryMode } from '@/lib/api'
+import { Check, Circle, Eraser, MapPin, MousePointer2, RotateCcw, Save, Undo2 } from 'lucide-react'
+import { api, type PoiType, type Settlement, type SettlementBoundaryMode, type SettlementPoi } from '@/lib/api'
 import { BASE_LAYERS, buildPlotFillExpr, DEFAULT_BASE_LAYER_ID, STATUS_COLORS, STATUS_LABELS } from '@/lib/constants'
 import { addRoadLayers } from '@/lib/road-map-layers'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
 import { getGeometryBounds } from '@/lib/plot-bounds'
+import { POI_COLORS } from '@/lib/settlement-pois'
+import PoiEditorControls, { type SettlementPoiDraft } from './PoiEditorControls'
 
 type Point = [number, number]
-type DrawingMode = 'polygon' | 'radius' | null
+type DrawingMode = 'polygon' | 'radius' | 'poi' | null
 type BoundaryGeometry = Record<string, unknown>
+type EditorTab = 'boundary' | 'poi'
+
+type PoiMarkerRef = {
+  marker: maplibregl.Marker
+  root: Root
+  element: HTMLButtonElement
+  onClick: (event: MouseEvent) => void
+}
 
 interface BoundaryEditorProps {
   settlement: Settlement
@@ -81,16 +92,49 @@ function modeLabel(mode: SettlementBoundaryMode | null): string {
   return 'Нет'
 }
 
+function poiDraftFrom(poi: SettlementPoi): SettlementPoiDraft {
+  return {
+    id: poi.id,
+    poi_type: poi.poi_type,
+    custom_type_label: poi.custom_type_label || '',
+    name: poi.name,
+    description: poi.description || '',
+    longitude: poi.longitude,
+    latitude: poi.latitude,
+    is_published: poi.is_published,
+  }
+}
+
+function createPoiMarkerElement(poi: SettlementPoi, selected: boolean): { element: HTMLButtonElement; root: Root } {
+  const element = document.createElement('button')
+  element.type = 'button'
+  element.className = 'flex h-8 w-8 items-center justify-center rounded-full border-2 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2'
+  element.style.backgroundColor = POI_COLORS[poi.poi_type]
+  element.style.borderColor = selected ? '#111827' : '#ffffff'
+  element.style.opacity = poi.is_published ? '1' : '0.42'
+  element.setAttribute('aria-label', poi.name)
+  element.title = poi.is_published ? poi.name : `Скрыт: ${poi.name}`
+  const root = createRoot(element)
+  root.render(<MapPin size={16} color="white" strokeWidth={2.5} />)
+  return { element, root }
+}
+
 export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const markerRefs = useRef<maplibregl.Marker[]>([])
+  const boundaryMarkerRefs = useRef<maplibregl.Marker[]>([])
+  const poiMarkerRefs = useRef<PoiMarkerRef[]>([])
   const modeRef = useRef<DrawingMode>(null)
+  const poiPlacementTypeRef = useRef<PoiType>('other')
+  const settlementIdRef = useRef(settlement.id)
   const pointsRef = useRef<Point[]>([])
   const centerRef = useRef<Point | null>(null)
   const radiusRef = useRef(settlement.boundary_radius_m ?? 500)
   const initialGeometryRef = useRef(settlement.geometry)
+  settlementIdRef.current = settlement.id
+  initialGeometryRef.current = settlement.geometry
   const [mapReady, setMapReady] = useState(false)
+  const [editorTab, setEditorTab] = useState<EditorTab>('boundary')
   const [mode, setMode] = useState<DrawingMode>(null)
   const [draftMode, setDraftMode] = useState<'polygon' | 'radius'>(settlement.boundary_source === 'manual_radius' ? 'radius' : 'polygon')
   const [points, setPoints] = useState<Point[]>([])
@@ -98,6 +142,10 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
   const [radiusM, setRadiusM] = useState(settlement.boundary_radius_m ?? 500)
   const [draftGeometry, setDraftGeometry] = useState<BoundaryGeometry | null>(settlement.geometry || null)
   const [preview, setPreview] = useState<{ plot_count: number; by_status: Record<string, number> } | null>(null)
+  const [pois, setPois] = useState<SettlementPoi[]>([])
+  const [poiDraft, setPoiDraft] = useState<SettlementPoiDraft | null>(null)
+  const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null)
+  const [placementType, setPlacementType] = useState<PoiType>('other')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -109,9 +157,18 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
     if (source) source.setData(featureCollection(geometry) as any)
   }, [mapReady])
 
-  const clearMarkers = useCallback(() => {
-    for (const marker of markerRefs.current) marker.remove()
-    markerRefs.current = []
+  const clearBoundaryMarkers = useCallback(() => {
+    for (const marker of boundaryMarkerRefs.current) marker.remove()
+    boundaryMarkerRefs.current = []
+  }, [])
+
+  const clearPoiMarkers = useCallback(() => {
+    for (const poiMarker of poiMarkerRefs.current) {
+      poiMarker.element.removeEventListener('click', poiMarker.onClick)
+      poiMarker.root.unmount()
+      poiMarker.marker.remove()
+    }
+    poiMarkerRefs.current = []
   }, [])
 
   const updatePolygonPoints = useCallback((nextPoints: Point[]) => {
@@ -166,6 +223,21 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
         centerRef.current = nextCenter
         setCenter(nextCenter)
         setDraftGeometry(circleFromCenter(nextCenter, radiusRef.current))
+      } else if (modeRef.current === 'poi') {
+        setPoiDraft({
+          poi_type: poiPlacementTypeRef.current,
+          custom_type_label: '',
+          name: '',
+          description: '',
+          longitude: event.lngLat.lng,
+          latitude: event.lngLat.lat,
+          is_published: true,
+        })
+        setSelectedPoiId(null)
+        setMode(null)
+        modeRef.current = null
+        setMessage('Заполните карточку объекта')
+        setError('')
       }
     }
     map.on('load', onLoad)
@@ -174,11 +246,12 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
     return () => {
       map.off('load', onLoad)
       map.off('click', onClick)
-      clearMarkers()
+      clearBoundaryMarkers()
+      clearPoiMarkers()
       map.remove()
       mapRef.current = null
     }
-  }, [clearMarkers, settlement.id, updatePolygonPoints])
+  }, [clearBoundaryMarkers, clearPoiMarkers, settlement.id, updatePolygonPoints])
 
   useEffect(() => {
     modeRef.current = mode
@@ -204,7 +277,8 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
-    clearMarkers()
+    clearBoundaryMarkers()
+    if (editorTab !== 'boundary') return
     if (draftMode === 'polygon') {
       for (const [index, point] of points.entries()) {
         const marker = new maplibregl.Marker({
@@ -220,13 +294,13 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
           next[index] = [lngLat.lng, lngLat.lat]
           updatePolygonPoints(next)
         })
-        markerRefs.current.push(marker)
+        boundaryMarkerRefs.current.push(marker)
       }
       return
     }
 
     if (draftMode === 'radius' && center) {
-      markerRefs.current.push(
+      boundaryMarkerRefs.current.push(
         new maplibregl.Marker({
           element: createBoundaryPointElement(0, center, true),
           anchor: 'center',
@@ -235,7 +309,75 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
           .addTo(map),
       )
     }
-  }, [center, clearMarkers, draftMode, mapReady, mode, points, updatePolygonPoints])
+  }, [center, clearBoundaryMarkers, draftMode, editorTab, mapReady, mode, points, updatePolygonPoints])
+
+  useEffect(() => {
+    let active = true
+    setPois([])
+    setPoiDraft(null)
+    setSelectedPoiId(null)
+    clearPoiMarkers()
+    api.pois.adminList(settlement.id)
+      .then((items) => {
+        if (active) setPois(items)
+      })
+      .catch((cause) => {
+        if (active) setError(cause instanceof Error ? cause.message : 'Не удалось загрузить объекты')
+      })
+    return () => {
+      active = false
+    }
+  }, [clearPoiMarkers, settlement.id])
+
+  const handlePoiCoordinateUpdate = useCallback(async (poi: SettlementPoi, marker: maplibregl.Marker) => {
+    const lngLat = marker.getLngLat()
+    setBusy(true)
+    const previousCoordinates: Point = [poi.longitude, poi.latitude]
+    setError('')
+    try {
+      const result = await api.pois.update(poi.id, { longitude: lngLat.lng, latitude: lngLat.lat })
+      if (settlementIdRef.current !== poi.settlement_id) return
+      setPois((current) => current.map((item) => item.id === result.id ? result : item))
+      setPoiDraft((current) => current?.id === result.id ? poiDraftFrom(result) : current)
+      setMessage('Координаты объекта сохранены')
+    } catch (cause) {
+      if (settlementIdRef.current === poi.settlement_id) {
+        marker.setLngLat(previousCoordinates)
+        setError(cause instanceof Error ? cause.message : 'Не удалось сохранить координаты объекта')
+      }
+    } finally {
+      if (settlementIdRef.current === poi.settlement_id) setBusy(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+    clearPoiMarkers()
+    if (editorTab !== 'poi') return
+
+    for (const poi of pois) {
+      const { element, root } = createPoiMarkerElement(poi, selectedPoiId === poi.id)
+      const marker = new maplibregl.Marker({ element, anchor: 'bottom', draggable: true })
+        .setLngLat([poi.longitude, poi.latitude])
+        .addTo(map)
+      marker.setDraggable(selectedPoiId === poi.id)
+      const onClick = (event: MouseEvent) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setSelectedPoiId(poi.id)
+        setPoiDraft(poiDraftFrom(poi))
+        setMode(null)
+        modeRef.current = null
+        setError('')
+      }
+      element.addEventListener('click', onClick)
+      marker.on('dragend', () => {
+        void handlePoiCoordinateUpdate(poi, marker)
+      })
+      poiMarkerRefs.current.push({ marker, root, element, onClick })
+    }
+  }, [clearPoiMarkers, editorTab, handlePoiCoordinateUpdate, mapReady, pois, selectedPoiId])
 
   const startPolygon = (newContour: boolean) => {
     if (!newContour && settlement.geometry?.type !== 'Polygon') {
@@ -356,6 +498,92 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
     }
   }
 
+  const selectEditorTab = (nextTab: EditorTab) => {
+    setEditorTab(nextTab)
+    setMode(null)
+    modeRef.current = null
+    setMessage('')
+    setError('')
+    if (nextTab === 'boundary') {
+      setPoiDraft(null)
+      setSelectedPoiId(null)
+    }
+  }
+
+  const startPoiPlacement = (poiType: PoiType) => {
+    poiPlacementTypeRef.current = poiType
+    setPlacementType(poiType)
+    setPoiDraft(null)
+    setSelectedPoiId(null)
+    setMode('poi')
+    modeRef.current = 'poi'
+    setMessage('Кликните на карту, чтобы поставить объект')
+    setError('')
+  }
+
+  const handlePoiSave = async () => {
+    if (!poiDraft) return
+    const customTypeLabel = poiDraft.poi_type === 'other' ? poiDraft.custom_type_label.trim() : ''
+    if (!poiDraft.name.trim()) {
+      setError('Укажите название объекта')
+      return
+    }
+    if (poiDraft.poi_type === 'other' && !customTypeLabel) {
+      setError('Укажите свой тип объекта')
+      return
+    }
+
+    setBusy(true)
+    setError('')
+    try {
+      const data = {
+        poi_type: poiDraft.poi_type,
+        custom_type_label: customTypeLabel || null,
+        name: poiDraft.name.trim(),
+        description: poiDraft.description.trim() || null,
+        longitude: poiDraft.longitude,
+        latitude: poiDraft.latitude,
+        is_published: poiDraft.is_published,
+      }
+      const result = poiDraft.id
+        ? await api.pois.update(poiDraft.id, data)
+        : await api.pois.create({ settlement_id: settlement.id, ...data })
+      if (settlementIdRef.current !== settlement.id) return
+      setPois((current) => poiDraft.id
+        ? current.map((item) => item.id === result.id ? result : item)
+        : [...current, result])
+      setSelectedPoiId(result.id)
+      setPoiDraft(poiDraftFrom(result))
+      setMode(null)
+      modeRef.current = null
+      setMessage(poiDraft.id ? 'Объект сохранен' : 'Объект добавлен')
+    } catch (cause) {
+      if (settlementIdRef.current === settlement.id) setError(cause instanceof Error ? cause.message : 'Не удалось сохранить объект')
+    } finally {
+      if (settlementIdRef.current === settlement.id) setBusy(false)
+    }
+  }
+
+  const handlePoiDelete = async () => {
+    const selectedPoi = pois.find((poi) => poi.id === selectedPoiId)
+    if (!selectedPoi || !window.confirm(`Удалить объект "${selectedPoi.name}"?`)) return
+
+    setBusy(true)
+    setError('')
+    try {
+      await api.pois.delete(selectedPoi.id)
+      if (settlementIdRef.current !== settlement.id) return
+      setPois((current) => current.filter((poi) => poi.id !== selectedPoi.id))
+      setSelectedPoiId(null)
+      setPoiDraft(null)
+      setMessage('Объект удален')
+    } catch (cause) {
+      if (settlementIdRef.current === settlement.id) setError(cause instanceof Error ? cause.message : 'Не удалось удалить объект')
+    } finally {
+      if (settlementIdRef.current === settlement.id) setBusy(false)
+    }
+  }
+
   const handleMapSurfaceClick = (event: ReactMouseEvent<HTMLDivElement>) => {
     const map = mapRef.current
     if (!map || !mode) return
@@ -380,10 +608,10 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
     <section className="grid min-h-[640px] gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="relative min-h-[520px] overflow-hidden rounded-lg border border-[var(--ls-line)] bg-white shadow-sm">
         <div className="absolute inset-0"><div ref={mapContainerRef} className="h-full w-full" /></div>
-        {mode && <div aria-label="Область рисования границы" className="absolute inset-0 z-[5] cursor-crosshair" onClick={handleMapSurfaceClick} />}
+        {mode && mode !== 'poi' && <div aria-label="Область рисования границы" className="absolute inset-0 z-[5] cursor-crosshair" onClick={handleMapSurfaceClick} />}
         <div className="absolute left-3 top-3 z-10 flex items-center gap-2 rounded-md border border-gray-200 bg-white/95 px-3 py-2 text-xs text-gray-600 shadow-sm backdrop-blur-sm">
           <MousePointer2 className="h-4 w-4 text-[var(--ls-green)]" />
-          {mode ? (mode === 'polygon' ? 'Режим полигона' : 'Режим радиуса') : 'Выберите режим рисования'}
+          {mode ? (mode === 'polygon' ? 'Режим полигона' : mode === 'radius' ? 'Режим радиуса' : 'Режим объектов') : editorTab === 'poi' ? 'Выберите объект или поставьте новый' : 'Выберите режим рисования'}
         </div>
       </div>
 
@@ -394,7 +622,21 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
           <p className="mt-1 text-xs leading-5 text-[var(--ls-muted)]">Кадастровая сетка на публичной карте будет ограничена сохраненным контуром.</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div role="tablist" aria-label="Режим редактора" className="grid grid-cols-2 rounded-md border border-[var(--ls-line)] bg-[var(--ls-paper)] p-1">
+          <button type="button" role="tab" aria-selected={editorTab === 'boundary'} onClick={() => selectEditorTab('boundary')} className={'rounded px-3 py-2 text-xs font-semibold ' + (editorTab === 'boundary' ? 'bg-white text-[var(--ls-green-dark)] shadow-sm' : 'text-[var(--ls-muted)]')}>
+            Границы
+          </button>
+          <button type="button" role="tab" aria-selected={editorTab === 'poi'} onClick={() => selectEditorTab('poi')} className={'rounded px-3 py-2 text-xs font-semibold ' + (editorTab === 'poi' ? 'bg-white text-[var(--ls-green-dark)] shadow-sm' : 'text-[var(--ls-muted)]')}>
+            Объекты
+          </button>
+        </div>
+
+        {message && <p className="rounded-md bg-[#e4f1ec] px-3 py-2 text-xs text-[var(--ls-green-dark)]">{message}</p>}
+        {error && <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
+
+        {editorTab === 'boundary' ? (
+          <>
+          <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={() => startPolygon(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-[var(--ls-green)] px-3 py-2 text-xs font-semibold text-white hover:bg-[var(--ls-green-dark)]">
             <MousePointer2 className="h-4 w-4" /> Нарисовать полигон
           </button>
@@ -430,8 +672,6 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
         )}
 
         {mode === 'radius' && center && <p className="text-xs text-[var(--ls-muted)]">Центр выбран. Радиус можно менять без повторного клика.</p>}
-        {message && <p className="rounded-md bg-[#e4f1ec] px-3 py-2 text-xs text-[var(--ls-green-dark)]">{message}</p>}
-        {error && <p className="rounded-md bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
 
         <div className="mt-auto space-y-2 border-t border-[var(--ls-line)] pt-4">
           <button type="button" onClick={handlePreview} disabled={busy || !draftGeometry} className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-md border border-[var(--ls-green)] px-3 py-2 text-xs font-semibold text-[var(--ls-green-dark)] disabled:opacity-40">
@@ -466,6 +706,34 @@ export default function BoundaryEditor({ settlement, onSaved }: BoundaryEditorPr
         )}
 
         <p className="text-[11px] leading-4 text-[var(--ls-muted)]">Текущий режим: {modeLabel(draftMode)}. Для радиуса сначала выберите центр на карте. Счётчик и импорт включают участки полностью либо более чем на 50% площади внутри границы; NSPD на карте является отдельным визуальным слоем.</p>
+        </>
+        ) : (
+          <PoiEditorControls
+            pois={pois}
+            draft={poiDraft}
+            selectedId={selectedPoiId}
+            busy={busy}
+            placementType={placementType}
+            onPlacementTypeChange={setPlacementType}
+            onStartPlacement={startPoiPlacement}
+            onSelect={(poi) => {
+              setSelectedPoiId(poi.id)
+              setPoiDraft(poiDraftFrom(poi))
+              setMode(null)
+              modeRef.current = null
+              setError('')
+            }}
+            onChange={setPoiDraft}
+            onSave={handlePoiSave}
+            onDelete={handlePoiDelete}
+            onCancel={() => {
+              setPoiDraft(null)
+              setSelectedPoiId(null)
+              setMode(null)
+              modeRef.current = null
+            }}
+          />
+        )}
       </aside>
     </section>
   )

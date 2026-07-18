@@ -18,6 +18,7 @@ const adminLeadsPage = new URL('../app/admin/leads/page.tsx', import.meta.url)
 const adminPlotsPage = new URL('../app/admin/plots/page.tsx', import.meta.url)
 const adminSettlementsPage = new URL('../app/admin/settlements/page.tsx', import.meta.url)
 const boundaryEditorComponent = new URL('../components/admin/BoundaryEditor.tsx', import.meta.url)
+const poiEditorControls = new URL('../components/admin/PoiEditorControls.tsx', import.meta.url)
 const dataTableComponent = new URL('../components/ui/DataTable.tsx', import.meta.url)
 const draggableMapPanelComponent = new URL('../components/ui/DraggableMapPanel.tsx', import.meta.url)
 const mapViewComponent = new URL('../components/MapView.tsx', import.meta.url)
@@ -393,6 +394,28 @@ test('admin exposes manual settlement boundary editor with polygon and radius mo
   assert.match(editorSource, /toFixed\(6\)/)
   assert.match(editorSource, /ls-boundary-point/)
   assert.match(editorSource, /index \+ 1/)
+})
+
+test('admin boundary map manages settlement POIs', async () => {
+  const editor = await readFile(boundaryEditorComponent, 'utf8')
+  const controls = await readFile(poiEditorControls, 'utf8')
+
+  assert.match(editor, /api\.pois\.adminList\(settlement\.id\)/)
+  assert.match(editor, /modeRef\.current === 'poi'/)
+  assert.match(editor, /draggable: true/)
+  assert.match(editor, /poiMarkerRefs/)
+  assert.match(controls, /Объекты/)
+  assert.match(editor, /marker\.setLngLat\(previousCoordinates\)/)
+  assert.match(controls, /Опубликовать на карте/)
+  assert.match(controls, /Удалить объект/)
+})
+
+test('POI controls select a category before placement and require a custom label', async () => {
+  const controls = await readFile(poiEditorControls, 'utf8')
+
+  assert.match(controls, /placementType/)
+  assert.match(controls, /onPlacementTypeChange/)
+  assert.match(controls, /draft\.poi_type === 'other' && !draft\.custom_type_label\.trim\(\)/)
 })
 
 test('home map does not show cancelled vector tile loads as user-facing errors', async () => {
