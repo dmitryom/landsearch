@@ -39,6 +39,7 @@ const constantsModule = new URL('../lib/constants.ts', import.meta.url)
 const backendPlotsApi = new URL('../../backend/app/api/v1/plots.py', import.meta.url)
 const mapTilesModule = new URL('../lib/map-tiles.ts', import.meta.url)
 const nginxMapLocation = new URL('../../deploy/nginx/corner-bright-landscanner-map.conf', import.meta.url)
+const nginxConfig = new URL('../../nginx.conf', import.meta.url)
 const publishScript = fileURLToPath(new URL('../../scripts/publish-landscanner-map.sh', import.meta.url))
 const frontendDirectory = fileURLToPath(new URL('../', import.meta.url))
 const execFile = promisify(execFileCallback)
@@ -709,6 +710,23 @@ test('Nginx publishes only the reviewed Corner Bright artifact', async () => {
   assert.match(source, /location \/tiles\/carto\/labels\//)
   assert.match(source, /script-src 'self' 'unsafe-inline'/)
   assert.doesNotMatch(source, /unpkg\.com/)
+})
+
+test('Nginx proxies and caches same-origin OpenFreeMap road tiles', async () => {
+  const source = await readFile(nginxConfig, 'utf8')
+
+  assert.match(source, /proxy_cache_path \/var\/cache\/nginx\/landsearch-roads/)
+  assert.match(source, /keys_zone=roads_tiles:32m/)
+  assert.match(source, /location = \/tiles\/roads\/tiles\.json/)
+  assert.match(source, /proxy_pass https:\/\/tiles\.openfreemap\.org\/planet;/)
+  assert.match(source, /proxy_set_header Accept-Encoding "";/)
+  assert.match(source, /sub_filter_types application\/json;/)
+  assert.match(source, /sub_filter 'https:\/\/tiles\.openfreemap\.org\/planet\/' '\/tiles\/roads\/';/)
+  assert.match(source, /location \/tiles\/roads\//)
+  assert.match(source, /proxy_pass https:\/\/tiles\.openfreemap\.org\/planet\//)
+  assert.match(source, /proxy_cache_use_stale error timeout invalid_header updating http_500 http_502 http_503 http_504;/)
+  assert.match(source, /X-Road-Tile-Cache/)
+  assert.match(source, /Access-Control-Allow-Origin "\*" always/)
 })
 
 test('artifact publisher self-hosts LandScanner map dependencies', async () => {
