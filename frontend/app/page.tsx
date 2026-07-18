@@ -22,6 +22,7 @@ import ResizeHandle from '@/components/ui/ResizeHandle'
 import { usePersistentLayout } from '@/lib/use-persistent-layout'
 import { usePersistentBoolean } from '@/lib/use-persistent-boolean'
 import { DEFAULT_NSPD_LAYER_VISIBILITY, type NspdLayerVisibility } from '@/lib/plot-map-layers'
+import { getPublicCatalogFilters } from '@/lib/public-catalog-filters'
 
 const URL_FILTER_KEYS = [
   'query',
@@ -36,11 +37,6 @@ const URL_FILTER_KEYS = [
   'sort_by',
   'sort_order',
 ] as const
-
-export function getPublicCatalogFilters(filters: Record<string, string>) {
-  if (filters.settlement_id || filters.query?.trim()) return filters
-  return { ...filters, settlements_only: 'true' }
-}
 
 export default function HomePage() {
   const mapRef = useRef<maplibregl.Map | null>(null)

@@ -41,6 +41,7 @@ const apiClient = new URL('../lib/api.ts', import.meta.url)
 const constantsModule = new URL('../lib/constants.ts', import.meta.url)
 const backendPlotsApi = new URL('../../backend/app/api/v1/plots.py', import.meta.url)
 const mapTilesModule = new URL('../lib/map-tiles.ts', import.meta.url)
+const publicCatalogFiltersModule = new URL('../lib/public-catalog-filters.ts', import.meta.url)
 const nginxMapLocation = new URL('../../deploy/nginx/corner-bright-landscanner-map.conf', import.meta.url)
 const nginxConfig = new URL('../../nginx.conf', import.meta.url)
 const publishScript = fileURLToPath(new URL('../../scripts/publish-landscanner-map.sh', import.meta.url))
@@ -110,8 +111,8 @@ test('home land search filters are applied to map vector tile requests', async (
   const plotLayers = await readFile(plotMapLayersModule, 'utf8')
   const mapTiles = await readFile(mapTilesModule, 'utf8')
 
-  assert.match(home, /<MapView[\s\S]*filters=\{filters\}/)
-  assert.match(home, /<LayerSwitcher[\s\S]*filters=\{filters\}/)
+  assert.match(home, /<MapView[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
+  assert.match(home, /<LayerSwitcher[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
   assert.match(mapView, /buildPlotTileUrl\(filters\)/)
   assert.match(layerSwitcher, /buildPlotTileUrl\(filters\)/)
   assert.match(mapView, /updatePlotTileUrl\(map, tileUrl\)/)
@@ -122,20 +123,28 @@ test('home land search filters are applied to map vector tile requests', async (
 test('empty public map scopes colored inventory to all settlements without narrowing direct search', async () => {
   const home = await readFile(homePage, 'utf8')
   const mapTiles = await readFile(mapTilesModule, 'utf8')
+  const publicCatalogFilters = await readFile(publicCatalogFiltersModule, 'utf8')
 
-  assert.match(home, /export function getPublicCatalogFilters\(filters: Record<string, string>\)/)
-  assert.match(home, /if \(filters\.settlement_id \|\| filters\.query\?\.trim\(\)\) return filters/)
-  assert.match(home, /return \{ \.\.\.filters, settlements_only: 'true' \}/)
+  assert.match(publicCatalogFilters, /export function getPublicCatalogFilters\(filters: Record<string, string>\)/)
+  assert.match(publicCatalogFilters, /if \(filters\.settlement_id \|\| filters\.query\?\.trim\(\)\) return filters/)
+  assert.match(publicCatalogFilters, /return \{ \.\.\.filters, settlements_only: 'true' \}/)
   assert.match(home, /const publicCatalogFilters = useMemo\(\(\) => getPublicCatalogFilters\(filters\), \[filters\]\)/)
   assert.match(home, /loadData\(publicCatalogFilters\)/)
-  assert.match(home, /<MapView[\s\S]*filters=\{publicCatalogFilters\}/)
-  assert.match(home, /<LayerSwitcher[\s\S]*filters=\{publicCatalogFilters\}/)
+  assert.match(home, /<MapView[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
+  assert.match(home, /<LayerSwitcher[\s\S]*?filters=\{publicCatalogFilters\}[\s\S]*?\/>/)
   assert.match(mapTiles, /'settlements_only'/)
 
   const urlFilterStart = home.indexOf('const URL_FILTER_KEYS')
   const urlFilterEnd = home.indexOf('] as const', urlFilterStart)
   const urlFilterBlock = home.slice(urlFilterStart, urlFilterEnd)
   assert.doesNotMatch(urlFilterBlock, /settlements_only/)
+})
+
+test('Next.js page keeps public catalog filter helpers outside the route module', async () => {
+  const home = await readFile(homePage, 'utf8')
+
+  assert.match(home, /import \{ getPublicCatalogFilters \} from '@\/lib\/public-catalog-filters'/)
+  assert.doesNotMatch(home, /export function getPublicCatalogFilters/)
 })
 
 test('neutral NSPD cadastre has an independent toggle without moving the viewport', async () => {
