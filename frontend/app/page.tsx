@@ -6,7 +6,7 @@ import type maplibregl from 'maplibre-gl'
 import { api } from '@/lib/api'
 import type { Plot, Settlement } from '@/lib/api'
 import { DEFAULT_BASE_LAYER_ID } from '@/lib/constants'
-import { Filter, MapPinned } from 'lucide-react'
+import { Filter, MapPinned, Pin, PinOff } from 'lucide-react'
 import SearchBar, { type SearchRequest } from '@/components/ui/SearchBar'
 import FilterPanel from '@/components/ui/FilterPanel'
 import PlotPopup from '@/components/ui/PlotPopup'
@@ -21,6 +21,7 @@ import { getGeometryBounds, getPlotBounds, type PlotBounds } from '@/lib/plot-bo
 import ResizeHandle from '@/components/ui/ResizeHandle'
 import { usePersistentLayout } from '@/lib/use-persistent-layout'
 import { usePersistentBoolean } from '@/lib/use-persistent-boolean'
+import { safeGet } from '@/lib/storage'
 import { DEFAULT_NSPD_LAYER_VISIBILITY, type NspdLayerVisibility } from '@/lib/plot-map-layers'
 import { getPublicCatalogFilters } from '@/lib/public-catalog-filters'
 
@@ -52,7 +53,8 @@ export default function HomePage() {
   const selectedPlotRequestIdRef = useRef(0)
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [filtersReady, setFiltersReady] = useState(false)
-  const [showFilters, setShowFilters] = useState(true)
+  const [showFilters, setShowFilters] = usePersistentBoolean('landsearch:filters-open', true)
+  const [filtersPinned, setFiltersPinned] = usePersistentBoolean('landsearch:filters-pinned', true)
   const [baseLayer, setBaseLayer] = useState(DEFAULT_BASE_LAYER_ID)
   const [showRoads, setShowRoads] = usePersistentBoolean('landsearch:roads-visible', true)
   const [showSettlementPois, setShowSettlementPois] = usePersistentBoolean('landsearch:settlement-pois-visible', true)
@@ -69,7 +71,11 @@ export default function HomePage() {
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 767px)')
-    const syncResponsiveFilters = () => setShowFilters(!mediaQuery.matches)
+    const syncResponsiveFilters = () => {
+      const stored = safeGet('landsearch:filters-open')
+      if (stored === 'true' || stored === 'false') return
+      setShowFilters(!mediaQuery.matches)
+    }
     syncResponsiveFilters()
     mediaQuery.addEventListener?.('change', syncResponsiveFilters)
     return () => mediaQuery.removeEventListener?.('change', syncResponsiveFilters)
@@ -307,13 +313,22 @@ export default function HomePage() {
             <span className="text-[var(--ls-green)] font-semibold">{plotsTotal}</span>
             <span>найдено</span>
           </div>
-          <button type="button" onClick={() => setShowFilters(!showFilters)}
-            aria-label={showFilters ? 'Скрыть фильтры' : 'Открыть фильтры'}
-            aria-expanded={showFilters}
-            className={`ls-control min-h-11 min-w-11 p-2 ${showFilters ? 'bg-[#e4f1ec] text-[var(--ls-green-dark)]' : 'text-[var(--ls-muted)]'}`}
-            title="Фильтры">
-            <Filter className="mx-auto h-5 w-5" aria-hidden="true" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setShowFilters((value) => !value)}
+              aria-label={showFilters ? 'Скрыть фильтры' : 'Открыть фильтры'}
+              aria-expanded={showFilters}
+              className={`ls-control min-h-11 min-w-11 p-2 ${showFilters ? 'bg-[#e4f1ec] text-[var(--ls-green-dark)]' : 'text-[var(--ls-muted)]'}`}
+              title="Фильтры">
+              <Filter className="mx-auto h-5 w-5" aria-hidden="true" />
+            </button>
+            <button type="button" onClick={() => setFiltersPinned((value) => !value)}
+              aria-label={filtersPinned ? 'Открепить панель фильтров' : 'Закрепить панель фильтров'}
+              aria-pressed={filtersPinned}
+              className={`ls-control hidden min-h-11 min-w-11 p-2 md:block ${filtersPinned ? 'bg-[#e4f1ec] text-[var(--ls-green-dark)]' : 'text-[var(--ls-muted)]'}`}
+              title={filtersPinned ? 'Открепить панель фильтров' : 'Закрепить панель фильтров'}>
+              {filtersPinned ? <Pin className="mx-auto h-4 w-4" aria-hidden="true" /> : <PinOff className="mx-auto h-4 w-4" aria-hidden="true" />}
+            </button>
+          </div>
           <div className="hidden md:flex items-center gap-1 sm:gap-2">
             <a href="/auth/login" className="inline-flex min-h-11 items-center rounded-md bg-[var(--ls-green)] px-3 text-xs font-semibold text-white hover:bg-[var(--ls-green-dark)] sm:px-4 sm:text-sm">Войти</a>
             <a href="/admin" className="ls-control inline-flex min-h-11 items-center px-3 text-xs font-semibold sm:px-4 sm:text-sm">Админка</a>
@@ -325,9 +340,9 @@ export default function HomePage() {
         <SearchBar onSearch={handleSearch} resetToken={searchResetToken} />
       </div>
 
-      <div className="flex-1 flex overflow-hidden min-h-0">
+      <div className="relative flex-1 flex overflow-hidden min-h-0">
         {showFilters && (
-          <div className="hidden md:flex shrink-0 items-stretch" style={{ width: `${filterRailWidth + 12}px` }}>
+          <div className={`${filtersPinned ? 'hidden md:flex shrink-0' : 'absolute inset-y-0 left-0 z-20 hidden md:flex shadow-xl'} items-stretch`} style={{ width: `${filterRailWidth + 12}px` }}>
             <FilterPanel width={filterRailWidth} filters={filters} onChange={handleFiltersChange} />
             <ResizeHandle
               axis="x"

@@ -33,7 +33,10 @@ import {
   X,
   Check,
   Filter,
+  GripVertical,
+  RotateCcw,
 } from 'lucide-react'
+import { safeGet, safeSet } from '@/lib/storage'
 
 export type { ColumnDef, Column, Table }
 export { createColumnHelper }
@@ -171,8 +174,29 @@ function FacetedFilter<TData>({
 }
 
 // -- Column Visibility dropdown --
-function ColumnVisibilityDropdown<TData>({ table }: { table: Table<TData> }) {
+function columnLabel<TData>(column: Column<TData, unknown>): string {
+  return typeof column.columnDef.header === 'string' ? column.columnDef.header : column.id
+}
+
+function ColumnVisibilityDropdown<TData>({
+  table,
+  onReset,
+}: {
+  table: Table<TData>
+  onReset: () => void
+}) {
   const [open, setOpen] = useState(false)
+  const hideableColumns = table.getAllLeafColumns().filter((col) => col.getCanHide())
+  const visibleCount = hideableColumns.filter((col) => col.getIsVisible()).length
+
+  useEffect(() => {
+    if (!open) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open])
 
   return (
     <div className="relative">
@@ -187,10 +211,13 @@ function ColumnVisibilityDropdown<TData>({ table }: { table: Table<TData> }) {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-1 w-52 bg-white border rounded-lg shadow-lg p-1 max-h-72 overflow-auto">
-            {table.getAllLeafColumns()
-              .filter((col) => col.columnDef.header)
-              .map((col) => {
+          <div className="absolute right-0 z-50 mt-1 w-64 overflow-hidden rounded-md border border-[var(--ls-line)] bg-white shadow-lg">
+            <div className="flex items-center justify-between border-b border-[var(--ls-line)] px-3 py-2">
+              <span className="text-xs font-semibold text-[var(--ls-ink)]">Видимые столбцы</span>
+              <span className="text-[11px] text-[var(--ls-muted)]">{visibleCount}/{hideableColumns.length}</span>
+            </div>
+            <div className="max-h-72 overflow-auto p-1">
+              {hideableColumns.map((col) => {
                 const visible = col.getIsVisible()
                 return (
                   <label
@@ -201,12 +228,26 @@ function ColumnVisibilityDropdown<TData>({ table }: { table: Table<TData> }) {
                       type="checkbox"
                       checked={visible}
                       onChange={col.getToggleVisibilityHandler()}
-                      className="rounded border-gray-300"
+                      className="h-4 w-4 rounded border-gray-300 accent-[var(--ls-green)]"
                     />
-                    <span className="truncate">{col.columnDef.header as string}</span>
+                    <span className="truncate">{columnLabel(col)}</span>
                   </label>
                 )
               })}
+            </div>
+            <div className="border-t border-[var(--ls-line)] p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  onReset()
+                  setOpen(false)
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-[var(--ls-blue)] hover:bg-[var(--ls-paper)]"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                Сбросить порядок и видимость
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -366,6 +407,7 @@ interface DataTableProps<TData> {
   selectionResetToken?: number
   selectAllRows?: boolean
   onSelectAllPage?: (selected: boolean) => void
+  columnPreferencesKey?: string
 }
 
 export function DataTable<TData>({
@@ -392,13 +434,18 @@ export function DataTable<TData>({
   selectionResetToken = 0,
   selectAllRows = false,
   onSelectAllPage,
+  columnPreferencesKey,
 }: DataTableProps<TData>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = useState('')
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnOrder, setColumnOrder] = useState<string[]>([])
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize })
+  const [preferencesHydrated, setPreferencesHydrated] = useState(!columnPreferencesKey)
+  const [draggedColumnId, setDraggedColumnId] = useState<string | null>(null)
+  const [dragOverColumnId, setDragOverColumnId] = useState<string | null>(null)
 
   useEffect(() => {
     setPagination((current) => current.pageSize === pageSize ? current : { pageIndex: 0, pageSize })
@@ -438,6 +485,73 @@ export function DataTable<TData>({
     ]
   }, [columns, enableRowSelection, onSelectAllPage, selectAllRows])
 
+  const defaultColumnOrder = useMemo(
+    () => allColumns.map((column, index) => {
+      if (column.id) return column.id
+      if ('accessorKey' in column && typeof column.accessorKey === 'string') return column.accessorKey
+      return `column-${index}`
+    }),
+    [allColumns],
+  )
+  const columnIdsKey = defaultColumnOrder.join('|')
+
+  useEffect(() => {
+    if (!columnPreferencesKey) {
+      setColumnOrder(defaultColumnOrder)
+      setPreferencesHydrated(true)
+      return
+    }
+
+    let stored: { order?: unknown; visibility?: unknown } = {}
+    try {
+      const raw = safeGet(columnPreferencesKey)
+      if (raw) stored = JSON.parse(raw) as typeof stored
+    } catch {
+      stored = {}
+    }
+
+    const savedOrder = Array.isArray(stored.order) ? stored.order.filter((id): id is string => typeof id === 'string') : []
+    const normalizedOrder = [
+      ...savedOrder.filter((id) => defaultColumnOrder.includes(id)),
+      ...defaultColumnOrder.filter((id) => !savedOrder.includes(id)),
+    ]
+    const savedVisibility = stored.visibility && typeof stored.visibility === 'object'
+      ? Object.fromEntries(
+          Object.entries(stored.visibility).filter(([id, value]) => defaultColumnOrder.includes(id) && typeof value === 'boolean'),
+        ) as VisibilityState
+      : {}
+
+    setColumnOrder(normalizedOrder)
+    setColumnVisibility(savedVisibility)
+    setPreferencesHydrated(true)
+  }, [columnIdsKey, columnPreferencesKey, defaultColumnOrder])
+
+  useEffect(() => {
+    if (!columnPreferencesKey || !preferencesHydrated) return
+    safeSet(columnPreferencesKey, JSON.stringify({
+      order: columnOrder.length ? columnOrder : defaultColumnOrder,
+      visibility: columnVisibility,
+    }))
+  }, [columnOrder, columnIdsKey, columnPreferencesKey, columnVisibility, defaultColumnOrder, preferencesHydrated])
+
+  const resetColumnPreferences = useCallback(() => {
+    setColumnOrder(defaultColumnOrder)
+    setColumnVisibility({})
+  }, [defaultColumnOrder])
+
+  const moveColumn = useCallback((sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return
+    setColumnOrder((current) => {
+      const order = current.length ? [...current] : [...defaultColumnOrder]
+      const sourceIndex = order.indexOf(sourceId)
+      const targetIndex = order.indexOf(targetId)
+      if (sourceIndex === -1 || targetIndex === -1) return order
+      order.splice(sourceIndex, 1)
+      order.splice(order.indexOf(targetId), 0, sourceId)
+      return order
+    })
+  }, [defaultColumnOrder])
+
   const table = useReactTable({
     data,
     columns: allColumns,
@@ -445,6 +559,7 @@ export function DataTable<TData>({
       sorting,
       columnFilters,
       columnVisibility,
+      columnOrder: columnOrder.length ? columnOrder : defaultColumnOrder,
       rowSelection,
       pagination,
       globalFilter: searchValue ?? globalFilter,
@@ -453,6 +568,7 @@ export function DataTable<TData>({
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
+    onColumnOrderChange: setColumnOrder,
     onRowSelectionChange: setRowSelection,
     onPaginationChange: setPagination,
     globalFilterFn,
@@ -585,7 +701,7 @@ export function DataTable<TData>({
 
           <div className="flex-1" />
 
-          <ColumnVisibilityDropdown table={table} />
+          <ColumnVisibilityDropdown table={table} onReset={resetColumnPreferences} />
 
           <button
             onClick={() => exportToCSV(table, exportFilename)}
@@ -614,11 +730,40 @@ export function DataTable<TData>({
                   return (
                     <th
                       key={header.id}
+                      draggable
+                      onDragStart={(event) => {
+                        if ((event.target as HTMLElement).closest('button, input, select')) {
+                          event.preventDefault()
+                          return
+                        }
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', header.column.id)
+                        setDraggedColumnId(header.column.id)
+                      }}
+                      onDragOver={(event) => {
+                        if (!draggedColumnId || draggedColumnId === header.column.id) return
+                        event.preventDefault()
+                        event.dataTransfer.dropEffect = 'move'
+                        setDragOverColumnId(header.column.id)
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        const sourceId = draggedColumnId || event.dataTransfer.getData('text/plain')
+                        if (sourceId) moveColumn(sourceId, header.column.id)
+                        setDraggedColumnId(null)
+                        setDragOverColumnId(null)
+                      }}
+                      onDragEnd={() => {
+                        setDraggedColumnId(null)
+                        setDragOverColumnId(null)
+                      }}
                       className={`px-3 py-2 text-xs font-medium text-gray-500 uppercase select-none relative ${
                         header.column.getCanSort() ? 'cursor-pointer hover:bg-gray-100' : ''
                       } ${isPinned ? 'sticky bg-gray-50 z-10' : ''} ${
                         isPinned === 'left' ? 'left-0 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''
-                      } ${isPinned === 'right' ? 'right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''}`}
+                      } ${isPinned === 'right' ? 'right-0 shadow-[-2px_0_5px_-2px_rgba(0,0,0,0.1)]' : ''} ${
+                        dragOverColumnId === header.column.id ? 'bg-[#e4f1ec] text-[var(--ls-green-dark)]' : ''
+                      }`}
                       style={{
                         width: header.getSize(),
                         ...(isPinned === 'left' ? { left: header.column.getStart('left') } : {}),
@@ -628,7 +773,9 @@ export function DataTable<TData>({
                       <div
                         className="flex min-w-0 items-center gap-1 whitespace-normal break-words"
                         onClick={header.column.getToggleSortingHandler()}
+                        title={`Перетащите, чтобы изменить порядок: ${columnLabel(header.column)}`}
                       >
+                        <GripVertical className="h-3.5 w-3.5 shrink-0 text-[var(--ls-muted)]" aria-hidden="true" />
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {header.column.getCanSort() && (
                           <span className="text-gray-400">
