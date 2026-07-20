@@ -571,6 +571,7 @@ export default function AdminPlotsPage() {
           if (!selected) setSelectAllMatching(false)
         }}
         enableColumnResize
+        columnPreferencesKey="landsearch:admin-plots:columns"
         hidePagination
         manualPagination
         exportFilename="plots"

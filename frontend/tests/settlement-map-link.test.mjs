@@ -79,15 +79,20 @@ test('map vector tiles use the configured API base without double-origin URLs', 
   assert.doesNotMatch(layerSwitcher, /\/api\/v1\/plots\/tiles/)
 })
 
-test('base map layers do not rely on missing local tile proxy routes', async () => {
+test('base map layers use same-origin tile proxy routes', async () => {
   const source = await readFile(constantsModule, 'utf8')
   const baseLayersIndex = source.indexOf('export const BASE_LAYERS')
   const baseLayersSource = source.slice(baseLayersIndex)
 
   assert.notEqual(baseLayersIndex, -1)
-  assert.doesNotMatch(baseLayersSource, /tiles:\s*\[\s*['"]\/tiles\//)
-  assert.match(baseLayersSource, /https:\/\/tile\.openstreetmap\.org/)
-  assert.match(baseLayersSource, /https:\/\/server\.arcgisonline\.com/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.osm/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.esriImagery/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.cartoLabels/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.topo/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.cartoLight/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.cartoDark/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.cartoVoyager/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.cyclosm/)
 })
 
 test('base map layers expose only Web Mercator-compatible imagery under cadastral boundaries', async () => {
@@ -97,7 +102,8 @@ test('base map layers expose only Web Mercator-compatible imagery under cadastra
 
   assert.notEqual(baseLayersIndex, -1)
   assert.match(baseLayersSource, /id: 'satellite'/)
-  assert.match(baseLayersSource, /https:\/\/server\.arcgisonline\.com\/ArcGIS\/rest\/services\/World_Imagery/)
+  assert.match(baseLayersSource, /TILE_PROXY_URLS\.esriImagery/)
+  assert.doesNotMatch(baseLayersSource, /https:\/\/(?:server\.arcgisonline\.com|a\.basemaps\.cartocdn\.com|tile\.openstreetmap\.org|a\.tile\.opentopomap\.org|a\.tile-cyclosm\.openstreetmap\.fr)/)
   assert.doesNotMatch(baseLayersSource, /core-sat\.maps\.yandex\.net/)
   assert.doesNotMatch(baseLayersSource, /core-renderer-tiles\.maps\.yandex\.net/)
   assert.doesNotMatch(baseLayersSource, /id: 'yandex_sat'/)
@@ -297,7 +303,10 @@ test('public maps expose and persist the OSM road layer across style switches', 
 
   assert.match(persistence, /safeGet\(key\)/)
   assert.match(persistence, /stored === 'true' \|\| stored === 'false'/)
-  assert.match(persistence, /if \(hydrated\) safeSet\(key, String\(value\)\)/)
+  assert.match(persistence, /skipPersistRef\.current = !userChangedBeforeHydration/)
+  assert.match(persistence, /if \(hydrated && skipPersistRef\.current\)/)
+  assert.match(persistence, /userChangedBeforeHydration/)
+  assert.match(persistence, /const setPersistentValue = useCallback/)
 })
 
 test('plot, settlement and boundary editor maps use the same road overlay', async () => {
@@ -371,7 +380,7 @@ test('satellite layers include transparent street and place labels', async () =>
   const constants = await readFile(constantsModule, 'utf8')
   const satelliteSource = constants.slice(constants.indexOf("id: 'satellite'"), constants.indexOf("id: 'hybrid'"))
 
-  assert.match(satelliteSource, /basemaps\.cartocdn\.com/)
+  assert.match(satelliteSource, /TILE_PROXY_URLS\.cartoLabels/)
   assert.match(satelliteSource, /satellite-labels/)
   assert.match(satelliteSource, /maxzoom: 17/)
   assert.match(satelliteSource, /raster-opacity/)

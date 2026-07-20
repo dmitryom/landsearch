@@ -225,6 +225,17 @@ export function buildStatusBorderExpr(): any[] {
 
 export const DEFAULT_BASE_LAYER_ID = 'landscanner'
 
+const TILE_PROXY_URLS = {
+  esriImagery: '/tiles/esri/imagery/{z}/{y}/{x}',
+  osm: '/tiles/osm/{z}/{x}/{y}.png',
+  topo: '/tiles/topo/{z}/{x}/{y}.png',
+  cartoLabels: '/tiles/carto/labels/{z}/{x}/{y}.png',
+  cartoLight: '/tiles/carto/light/{z}/{x}/{y}@2x.png',
+  cartoDark: '/tiles/carto/dark/{z}/{x}/{y}@2x.png',
+  cartoVoyager: '/tiles/carto/voyager/{z}/{x}/{y}@2x.png',
+  cyclosm: '/tiles/cyclosm/{z}/{x}/{y}.png',
+} as const
+
 export const BASE_LAYERS: BaseLayerDef[] = [
   {
     id: 'landscanner',
@@ -236,13 +247,13 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         imagery: {
           type: 'raster',
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tiles: [TILE_PROXY_URLS.esriImagery],
           tileSize: 256,
           attribution: '© Esri',
         },
         labels: {
           type: 'raster',
-          tiles: ['https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'],
+          tiles: [TILE_PROXY_URLS.cartoLabels],
           tileSize: 256,
           attribution: '© CARTO',
         },
@@ -263,7 +274,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         osm: {
           type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tiles: [TILE_PROXY_URLS.osm],
           tileSize: 256,
           attribution: '© OpenStreetMap',
         },
@@ -281,13 +292,13 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         esri: {
           type: 'raster',
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tiles: [TILE_PROXY_URLS.esriImagery],
           tileSize: 256,
           attribution: '© Esri',
         },
         labels: {
           type: 'raster',
-          tiles: ['https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'],
+          tiles: [TILE_PROXY_URLS.cartoLabels],
           tileSize: 256,
           attribution: '© CARTO',
         },
@@ -308,13 +319,13 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         esri: {
           type: 'raster',
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tiles: [TILE_PROXY_URLS.esriImagery],
           tileSize: 256,
           attribution: '© Esri',
         },
         labels: {
           type: 'raster',
-          tiles: ['https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png'],
+          tiles: [TILE_PROXY_URLS.cartoLabels],
           tileSize: 256,
           attribution: '© CARTO',
         },
@@ -335,7 +346,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         topo: {
           type: 'raster',
-          tiles: ['https://a.tile.opentopomap.org/{z}/{x}/{y}.png'],
+          tiles: [TILE_PROXY_URLS.topo],
           tileSize: 256,
           attribution: '© OpenTopoMap',
         },
@@ -353,7 +364,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         carto: {
           type: 'raster',
-          tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png'],
+          tiles: [TILE_PROXY_URLS.cartoLight],
           tileSize: 256,
           attribution: '© CartoDB',
         },
@@ -371,7 +382,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         carto: {
           type: 'raster',
-          tiles: ['https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png'],
+          tiles: [TILE_PROXY_URLS.cartoDark],
           tileSize: 256,
           attribution: '© CartoDB',
         },
@@ -389,7 +400,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         carto: {
           type: 'raster',
-          tiles: ['https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png'],
+          tiles: [TILE_PROXY_URLS.cartoVoyager],
           tileSize: 256,
           attribution: '© CartoDB',
         },
@@ -407,7 +418,7 @@ export const BASE_LAYERS: BaseLayerDef[] = [
       sources: {
         cyclosm: {
           type: 'raster',
-          tiles: ['https://a.tile-cyclosm.openstreetmap.fr/cyclosm/{z}/{x}/{y}.png'],
+          tiles: [TILE_PROXY_URLS.cyclosm],
           tileSize: 256,
           attribution: '© CyclOSM, © OpenStreetMap',
         },
