@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
-import { safeSet } from '@/lib/storage'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -14,8 +13,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const res = await api.auth.login(email, password)
-      safeSet('token', res.access_token)
+      await api.auth.login(email, password)
       router.push('/admin')
     } catch (err: any) {
       setError(err.message || 'Ошибка входа')
@@ -29,7 +27,7 @@ export default function LoginPage() {
         {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label htmlFor="email" className="block text-sm mb-1">Email</label>
+            <label htmlFor="email" className="block text-sm mb-1">Электронная почта</label>
             <input
               id="email"
               type="email"
@@ -57,6 +55,7 @@ export default function LoginPage() {
         <p className="text-center text-sm mt-4">
           Нет аккаунта? <a href="/auth/register" className="text-blue-600">Зарегистрироваться</a>
         </p>
+        <p className="mt-3 text-center text-xs text-gray-500"><a href="/privacy" className="text-blue-700 underline">Политика обработки персональных данных</a><span className="mx-1">·</span><a href="/terms" className="text-blue-700 underline">Условия использования</a></p>
       </div>
     </div>
   )

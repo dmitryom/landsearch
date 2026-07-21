@@ -43,6 +43,7 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
   const [tab, setTab] = useState<PlotTab>('overview')
   const [showForm, setShowForm] = useState(false)
   const [phone, setPhone] = useState('')
+  const [consentGiven, setConsentGiven] = useState(false)
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
@@ -53,11 +54,22 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
 
   const handleConsult = async () => {
     if (!phone.trim()) return
+    if (!consentGiven) {
+      setError('Подтвердите согласие на обработку персональных данных')
+      return
+    }
     setSending(true)
     setError('')
     try {
-      await api.leads.create({ plot_id: plot.id, buyer_phone: phone.trim(), buyer_name: '' })
+      await api.leads.create({
+        plot_id: plot.id,
+        buyer_phone: phone.trim(),
+        buyer_name: '',
+        consent_given: true,
+        consent_version: '2026-07-20',
+      })
       setSent(true)
+      setConsentGiven(false)
     } catch {
       setError('Не удалось отправить заявку. Проверьте номер и повторите попытку.')
     } finally {
@@ -182,7 +194,11 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
               <label htmlFor="plot-phone" className="block text-xs font-semibold text-[var(--ls-ink)]">Телефон для связи</label>
               <input id="plot-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+7 900 000-00-00" className="ls-input w-full px-3 py-2 text-sm" aria-describedby="plot-phone-hint" />
               <p id="plot-phone-hint" className="text-[11px] text-[var(--ls-muted)]">Ответим по выбранному участку.</p>
-              <button type="button" onClick={handleConsult} disabled={!phone.trim() || sending} className="flex min-h-11 w-full items-center justify-center rounded-md bg-[var(--ls-green)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{sending ? 'Отправка…' : 'Отправить заявку'}</button>
+              <label htmlFor="plot-consent" className="flex items-start gap-2 text-[11px] leading-5 text-[var(--ls-muted)]">
+                <input id="plot-consent" type="checkbox" checked={consentGiven} onChange={(event) => { setConsentGiven(event.target.checked); setError('') }} className="mt-1 h-4 w-4 shrink-0" />
+                <span>Согласен на обработку персональных данных по <a href="/privacy" target="_blank" rel="noreferrer" className="text-[var(--ls-blue)] underline">политике обработки</a>.</span>
+              </label>
+              <button type="button" onClick={handleConsult} disabled={!phone.trim() || !consentGiven || sending} className="flex min-h-11 w-full items-center justify-center rounded-md bg-[var(--ls-green)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{sending ? 'Отправка…' : 'Отправить заявку'}</button>
             </div>
           )}
           {error && <p className="text-sm text-[var(--ls-red)]" role="alert">{error}</p>}

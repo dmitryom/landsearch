@@ -13,7 +13,9 @@ if [ -d "$BUILD_DIR/static/chunks" ]; then
 fi
 
 # 2. Build new
-NEXT_PUBLIC_API_URL="${API_URL:-https://v3163460.hosted-by-vdsina.ru/api/v1}" NODE_ENV=production npm run build
+NEXT_PUBLIC_SITE_URL="${SITE_URL:-https://v3163460.hosted-by-vdsina.ru}" \
+NEXT_PUBLIC_API_URL="${API_URL:-https://v3163460.hosted-by-vdsina.ru/api/v1}" \
+NODE_ENV=production npm run build
 
 # 3. Copy static files & BUILD_ID into standalone for correct serving
 if [ -d "$STANDALONE_DIR" ]; then

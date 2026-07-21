@@ -352,7 +352,7 @@ export default function MapView({
 
       const fallback = setTimeout(() => {
         if (mounted && !mapReadyRef.current) {
-          log('error', 'TIMEOUT: map.on(load) не сработал за 15 сек')
+          log('map', 'Событие загрузки карты задержалось, активирован резервный режим')
           mapReadyRef.current = true
           setMapLoaded(true)
           onMapReadyRef.current?.(map)

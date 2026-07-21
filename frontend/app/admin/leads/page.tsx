@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ExternalLink, Mail, Phone, RefreshCcw } from 'lucide-react'
+import { ExternalLink, Mail, Phone, RefreshCcw, Trash2 } from 'lucide-react'
 import { api, type LeadResponse, type LeadStatus } from '@/lib/api'
 
 const LEAD_STATUSES: Array<{ value: LeadStatus; label: string; className: string }> = [
@@ -77,6 +77,20 @@ export default function AdminLeadsPage() {
       setError(e instanceof Error ? e.message : 'Не удалось обновить статус')
     }
     setUpdatingId(null)
+  }
+
+  const deleteLead = async (lead: LeadResponse) => {
+    if (!window.confirm(`Удалить заявку ${lead.buyer_name || lead.buyer_phone || lead.buyer_email || lead.id}?`)) return
+    setUpdatingId(lead.id)
+    setError('')
+    try {
+      await api.leads.delete(lead.id)
+      setLeads((items) => items.filter((item) => item.id !== lead.id))
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось удалить заявку')
+    } finally {
+      setUpdatingId(null)
+    }
   }
 
   if (loading) {
@@ -193,6 +207,15 @@ export default function AdminLeadsPage() {
                         <option key={item.value} value={item.value}>{item.label}</option>
                       ))}
                     </select>
+                    <button
+                      type="button"
+                      onClick={() => void deleteLead(lead)}
+                      disabled={updatingId === lead.id}
+                      className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-red-200 px-3 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-40"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                      Удалить заявку
+                    </button>
                   </div>
                 </article>
               )

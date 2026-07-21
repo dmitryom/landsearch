@@ -18,6 +18,7 @@ async def test_create_lead(client: AsyncClient):
             "buyer_phone": "+7 (999) 123-45-67",
             "buyer_email": unique_email,
             "message": "Хочу купить участок",
+            "consent_given": True,
         },
     )
     assert res.status_code == 201
@@ -34,6 +35,7 @@ async def test_create_lead_nonexistent_plot(client: AsyncClient):
             "plot_id": "00000000-0000-0000-0000-000000000000",
             "buyer_name": "Test",
             "buyer_phone": "+7 (999) 999-99-99",
+            "consent_given": True,
         },
     )
     assert res.status_code == 404
@@ -60,6 +62,7 @@ async def test_list_leads_includes_plot_metadata(client: AsyncClient, auth_heade
             "buyer_name": "Анна Смирнова",
             "buyer_phone": "+7 (999) 000-11-22",
             "buyer_email": unique_email,
+            "consent_given": True,
         },
     )
     assert create_res.status_code == 201
@@ -88,6 +91,7 @@ async def test_update_lead_status(client: AsyncClient, auth_headers: dict[str, s
             "buyer_name": "Пётр Иванов",
             "buyer_phone": "+7 (999) 222-33-44",
             "buyer_email": unique_email,
+            "consent_given": True,
         },
     )
     assert create_res.status_code == 201
@@ -119,3 +123,18 @@ async def test_update_lead_status_rejects_unknown_status(client: AsyncClient, au
 async def test_list_leads_unauthorized(client: AsyncClient):
     res = await client.get("/api/v1/leads")
     assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_lead_requires_personal_data_consent(client: AsyncClient):
+    list_res = await client.get("/api/v1/plots?page_size=1")
+    plot_id = list_res.json()["items"][0]["id"]
+    res = await client.post(
+        "/api/v1/leads",
+        json={
+            "plot_id": plot_id,
+            "buyer_phone": "+7 (999) 111-22-33",
+            "consent_given": False,
+        },
+    )
+    assert res.status_code == 422

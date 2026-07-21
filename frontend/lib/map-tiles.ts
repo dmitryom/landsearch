@@ -18,6 +18,10 @@ export function buildPlotTileUrl(filters: Record<string, string> = {}): string {
   return absoluteApiPath(path)
 }
 
+export function buildPublicSettlementTileUrl(slug: string): string {
+  return absoluteApiPath(`/settlements/public/${encodeURIComponent(slug)}/tiles/{z}/{x}/{y}.mvt`)
+}
+
 export function buildNspdCadastreTileUrl(layerId: number): string {
   return absoluteApiPath(`/plots/tiles/nspd/${layerId}/{z}/{x}/{y}.png`)
 }

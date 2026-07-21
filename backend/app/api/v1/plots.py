@@ -14,9 +14,9 @@ from sqlalchemy.orm import aliased, selectinload
 
 from ...core.config import settings
 from ...core.database import get_session
-from ...core.exceptions import BadRequestException, NotFoundException
+from ...core.exceptions import BadRequestException, ConflictException, NotFoundException
 from ...metrics import CACHE_HITS, CACHE_MISSES, PLOTS_GEO_TOTAL
-from ...models import Plot, PlotStatus, Settlement, User, UserRole
+from ...models import Plot, PlotStatus, Reservation, ReservationStatus, Settlement, User, UserRole
 from ...schemas import BulkPlotDelete, BulkPlotStatusUpdate, PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotStatsResponse, PlotUpdate
 from ...services.cadastre import (
     NSPD_WMS_LAYERS,
@@ -26,6 +26,7 @@ from ...services.cadastre import (
     lookup_cadastre,
 )
 from ...services.boundary_coverage import boundary_covers_majority, boundary_covers_majority_sql
+from ...services.audit import record_event
 from ...services.similar import find_similar_plots
 from ...utils.plot_helpers import plot_to_response
 from ...services.vri import normalize_vri
@@ -106,6 +107,29 @@ async def _resolve_owned_settlement_id(
     if result.scalar_one_or_none() is None:
         raise NotFoundException("Settlement not found")
     return settlement_uuid
+
+
+async def _ensure_no_active_reservation_conflicts(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    plot_ids: list[UUID],
+    target_status: PlotStatus | str | None = None,
+) -> None:
+    if not plot_ids:
+        return
+    target_value = target_status.value if isinstance(target_status, PlotStatus) else target_status
+    if target_value == PlotStatus.reserved.value:
+        return
+    result = await session.execute(
+        select(Reservation.plot_id).where(
+            Reservation.tenant_id == tenant_id,
+            Reservation.plot_id.in_(plot_ids),
+            Reservation.status == ReservationStatus.active,
+        ).limit(1)
+    )
+    if result.scalar_one_or_none() is not None:
+        raise ConflictException("Cancel or confirm the active reservation before changing this plot")
 
 
 def _apply_settlement_boundary_scope(stmt, settlement_id: str | UUID, tenant_id: UUID):
@@ -777,7 +801,7 @@ async def similar_plots(
 @router.post("", response_model=PlotResponse, status_code=201)
 async def create_plot(
     body: PlotCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     settlement_id = await _resolve_owned_settlement_id(
@@ -809,8 +833,17 @@ async def create_plot(
 
     session.add(plot)
     await session.flush()
-
+    await record_event(
+        session,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        entity_type="plot",
+        entity_id=str(plot.id),
+        action="plot.created",
+        details={"cadastral_number": plot.cadastral_number, "status": plot.status.value if hasattr(plot.status, "value") else str(plot.status)},
+    )
     await session.commit()
+    await _invalidate_plot_map_cache(current_user.tenant_id)
     await session.refresh(plot)
     return plot_to_response(plot)
 
@@ -819,14 +852,14 @@ async def create_plot(
 async def update_plot(
     plot_id: str,
     body: PlotUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
         select(Plot).where(
             Plot.id == _parse_uuid(plot_id, "plot_id"),
             Plot.tenant_id == current_user.tenant_id,
-        )
+        ).with_for_update()
     )
     plot = result.scalar_one_or_none()
     if not plot:
@@ -839,6 +872,13 @@ async def update_plot(
     else:
         new_status_value = None
     current_status_value = plot.status.value if isinstance(plot.status, PlotStatus) else plot.status
+    if new_status_value is not None and new_status_value != current_status_value:
+        await _ensure_no_active_reservation_conflicts(
+            session,
+            tenant_id=current_user.tenant_id,
+            plot_ids=[plot.id],
+            target_status=new_status_value,
+        )
     if new_status_value is not None and new_status_value != current_status_value:
         from ...models import PlotStatusHistory
         history = PlotStatusHistory(
@@ -854,7 +894,16 @@ async def update_plot(
 
     if plot.area_m2 and plot.price:
         plot.price_per_hectare = plot.price / (plot.area_m2 / 10000)
-
+    await record_event(
+        session,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        entity_type="plot",
+        entity_id=str(plot.id),
+        action="plot.updated",
+        details={"fields": sorted(update_data), "old_status": current_status_value, "new_status": new_status_value},
+        webhook_payload={"plot": {"id": str(plot.id), "cadastral_number": plot.cadastral_number, "status": new_status_value or current_status_value}} if "status" in update_data else None,
+    )
     await session.commit()
     if "status" in update_data:
         await _invalidate_plot_map_cache(current_user.tenant_id)
@@ -885,9 +934,15 @@ async def bulk_update_plot_status(
     if body.filter_status is not None:
         stmt = stmt.where(Plot.status == body.filter_status)
 
-    result = await session.execute(stmt)
+    result = await session.execute(stmt.with_for_update())
     plots = result.scalars().all()
     status_value = body.status.value
+    await _ensure_no_active_reservation_conflicts(
+        session,
+        tenant_id=current_user.tenant_id,
+        plot_ids=[plot.id for plot in plots],
+        target_status=body.status,
+    )
     changed = 0
 
     from ...models import PlotStatusHistory
@@ -904,7 +959,17 @@ async def bulk_update_plot_status(
         ))
         plot.status = body.status
         changed += 1
-
+    if changed:
+        await record_event(
+            session,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            entity_type="plot",
+            entity_id="bulk",
+            action="plot.bulk_status_changed",
+            details={"count": changed, "status": status_value, "all_plots": body.all_plots},
+            webhook_payload={"plots": {"count": changed, "status": status_value}},
+        )
     await session.commit()
     if changed:
         await _invalidate_plot_map_cache(current_user.tenant_id)
@@ -934,10 +999,25 @@ async def bulk_delete_plots(
     if body.filter_status is not None:
         stmt = stmt.where(Plot.status == body.filter_status)
 
-    result = await session.execute(stmt)
+    result = await session.execute(stmt.with_for_update())
     plots = result.scalars().all()
+    await _ensure_no_active_reservation_conflicts(
+        session,
+        tenant_id=current_user.tenant_id,
+        plot_ids=[plot.id for plot in plots],
+    )
     for plot in plots:
         plot.is_active = False
+    if plots:
+        await record_event(
+            session,
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            entity_type="plot",
+            entity_id="bulk",
+            action="plot.bulk_archived",
+            details={"count": len(plots)},
+        )
     await session.commit()
     if plots:
         await _invalidate_plot_map_cache(current_user.tenant_id)
@@ -947,17 +1027,32 @@ async def bulk_delete_plots(
 @router.delete("/{plot_id}", status_code=204)
 async def delete_plot(
     plot_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
         select(Plot).where(
             Plot.id == _parse_uuid(plot_id, "plot_id"),
             Plot.tenant_id == current_user.tenant_id,
-        )
+        ).with_for_update()
     )
     plot = result.scalar_one_or_none()
     if not plot:
         raise NotFoundException("Plot not found")
+    await _ensure_no_active_reservation_conflicts(
+        session,
+        tenant_id=current_user.tenant_id,
+        plot_ids=[plot.id],
+    )
     plot.is_active = False
+    await record_event(
+        session,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        entity_type="plot",
+        entity_id=str(plot.id),
+        action="plot.archived",
+        details={"cadastral_number": plot.cadastral_number},
+    )
     await session.commit()
+    await _invalidate_plot_map_cache(current_user.tenant_id)

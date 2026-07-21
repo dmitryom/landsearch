@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useId, useMemo } from 'react'
 import { Home, MapPin, Search, X } from 'lucide-react'
 import { api, SearchSuggestion } from '@/lib/api'
 
@@ -9,7 +9,13 @@ export interface SearchRequest {
   suggestion?: SearchSuggestion
 }
 
-export default function SearchBar({ onSearch, resetToken = 0 }: { onSearch: (request: SearchRequest) => void; resetToken?: number }) {
+interface SearchBarProps {
+  onSearch: (request: SearchRequest) => void
+  resetToken?: number
+  value?: string
+}
+
+export default function SearchBar({ onSearch, resetToken = 0, value = '' }: SearchBarProps) {
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([])
   const [show, setShow] = useState(false)
@@ -18,6 +24,8 @@ export default function SearchBar({ onSearch, resetToken = 0 }: { onSearch: (req
   const suggestRequestRef = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
   const suppressSuggestionQueryRef = useRef<string | null>(null)
+  const inputId = useId()
+  const suggestionsId = `${inputId}-suggestions`
 
   const groupedSuggestions = useMemo(() => {
     const groups = new Map<SearchSuggestion['type'], SearchSuggestion[]>()
@@ -70,6 +78,14 @@ export default function SearchBar({ onSearch, resetToken = 0 }: { onSearch: (req
   }, [resetToken])
 
   useEffect(() => {
+    suppressSuggestionQueryRef.current = value
+    setQuery(value)
+    setSuggestions([])
+    setShow(false)
+    setActiveIndex(-1)
+  }, [value])
+
+  useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setShow(false)
@@ -81,12 +97,16 @@ export default function SearchBar({ onSearch, resetToken = 0 }: { onSearch: (req
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    suggestRequestRef.current += 1
+    abortRef.current?.abort()
+    abortRef.current = null
     const suggestion = activeIndex >= 0 ? suggestions[activeIndex] : undefined
     if (suggestion) {
       suppressSuggestionQueryRef.current = suggestion.value
       setQuery(suggestion.value)
     }
     onSearch({ query: suggestion?.value || query, suggestion })
+    setSuggestions([])
     setShow(false)
     setActiveIndex(-1)
   }
@@ -110,7 +130,7 @@ export default function SearchBar({ onSearch, resetToken = 0 }: { onSearch: (req
       <form onSubmit={handleSubmit} className="relative" role="search">
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
         <input
-          id="landsearch-query"
+          id={inputId}
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -119,7 +139,7 @@ export default function SearchBar({ onSearch, resetToken = 0 }: { onSearch: (req
           placeholder="Поиск по кадастровому номеру, адресу, посёлку..."
           aria-label="Поиск по кадастровому номеру, адресу или поселку"
           aria-autocomplete="list"
-          aria-controls="landsearch-suggestions"
+          aria-controls={suggestionsId}
           aria-expanded={show && suggestions.length > 0}
           role="combobox"
           className="ls-input w-full bg-gray-50 py-2 pl-10 pr-10 text-sm transition-colors focus:bg-white"
@@ -137,7 +157,7 @@ export default function SearchBar({ onSearch, resetToken = 0 }: { onSearch: (req
         )}
       </form>
       {show && suggestions.length > 0 && (
-        <div id="landsearch-suggestions" role="listbox" className="ls-panel absolute top-full z-50 mt-1 max-h-80 w-full overflow-y-auto p-1">
+        <div id={suggestionsId} role="listbox" className="ls-panel absolute top-full z-50 mt-1 max-h-80 w-full overflow-y-auto p-1">
           {groupedSuggestions.map(([type, items]) => (
             <div key={type}>
               <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--ls-muted)]">

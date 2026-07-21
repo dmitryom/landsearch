@@ -56,6 +56,37 @@ NSPD_SCAN_LATENCY = Histogram(
     buckets=[1, 5, 10, 30, 60, 120, 300],
 )
 
+NSPD_IMPORT_COUNT = Counter(
+    "landsearch_nspd_imports_total",
+    "Settlement NSPD import attempts",
+    ["result", "dry_run"],
+)
+
+NSPD_IMPORT_LATENCY = Histogram(
+    "landsearch_nspd_import_duration_seconds",
+    "Settlement NSPD import latency in seconds",
+    ["dry_run"],
+    buckets=[1, 5, 10, 30, 60, 120, 300, 600],
+)
+
+NSPD_IMPORT_OBJECTS = Counter(
+    "landsearch_nspd_import_objects_total",
+    "Objects handled by settlement NSPD imports",
+    ["outcome"],
+)
+
+RESERVATION_EVENTS = Counter(
+    "landsearch_reservation_events_total",
+    "Reservation lifecycle operations",
+    ["action"],
+)
+
+WEBHOOK_DELIVERIES = Counter(
+    "landsearch_webhook_deliveries_total",
+    "Webhook delivery outcomes",
+    ["outcome"],
+)
+
 # Cache metrics
 CACHE_HITS = Counter(
     "landsearch_cache_hits_total",

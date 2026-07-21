@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from ..metrics import REQUEST_COUNT, REQUEST_LATENCY
+from .config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             process_time = time.time() - start_time
             response.headers["X-Request-ID"] = request_id
-            response.headers["X-Process-Time-MS"] = str(round(process_time * 1000, 2))
+            if settings.debug:
+                response.headers["X-Process-Time-MS"] = str(round(process_time * 1000, 2))
 
             status = response.status_code
 

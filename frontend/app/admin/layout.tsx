@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
-import { Menu, X, LogOut, LayoutDashboard, MapPinned, Inbox, Upload, Settings2, PanelLeftClose, PanelLeftOpen, Pin, PinOff } from 'lucide-react'
+import { Menu, X, LogOut, LayoutDashboard, MapPinned, Inbox, Upload, Settings2, PanelLeftClose, PanelLeftOpen, Pin, PinOff, ClipboardList, CalendarClock } from 'lucide-react'
 import { safeGet, safeRemove } from '@/lib/storage'
 import { usePersistentBoolean } from '@/lib/use-persistent-boolean'
 
@@ -12,6 +12,8 @@ const NAV_ITEMS = [
   { key: '/admin/plots', label: 'Участки' },
   { key: '/admin/settlements', label: 'Границы' },
   { key: '/admin/leads', label: 'Лиды' },
+  { key: '/admin/reservations', label: 'Бронирования' },
+  { key: '/admin/audit', label: 'Аудит действий' },
   { key: '/admin/import', label: 'Импорт' },
   { key: '/admin/settings', label: 'Настройки' },
 ]
@@ -30,6 +32,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     '/admin/plots': MapPinned,
     '/admin/settlements': MapPinned,
     '/admin/leads': Inbox,
+    '/admin/reservations': CalendarClock,
+    '/admin/audit': ClipboardList,
     '/admin/import': Upload,
     '/admin/settings': Settings2,
   }

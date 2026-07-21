@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -7,9 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.database import get_session
 from ...core.exceptions import BadRequestException, NotFoundException
 from ...core.rate_limit import check_rate_limit
-from ...models import Lead, Plot, PlotStatus, User
+from ...models import Lead, Plot, PlotStatus, TenantLegalProfile, User, UserRole
 from ...schemas import LeadCreate, LeadResponse, LeadUpdate
-from ..deps import get_current_user, get_tenant_scope_optional
+from ...services.audit import record_event
+from ..deps import get_tenant_scope_optional, require_role
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -41,6 +43,9 @@ def _lead_response(lead: Lead, plot: Plot | None = None) -> LeadResponse:
         plot_status=_plot_status_value(plot) if plot else None,
         plot_price=plot.price if plot else None,
         created_at=lead.created_at,
+        consent_at=lead.consent_at,
+        consent_version=lead.consent_version,
+        expires_at=lead.expires_at,
     )
 
 
@@ -76,6 +81,11 @@ async def create_lead(
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Заявка уже отправлена")
 
+    legal_profile = (await session.execute(
+        select(TenantLegalProfile).where(TenantLegalProfile.tenant_id == plot.tenant_id)
+    )).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    retention_days = legal_profile.lead_retention_days if legal_profile else 365
     lead = Lead(
         tenant_id=plot.tenant_id,
         plot_id=body.plot_id,
@@ -83,15 +93,39 @@ async def create_lead(
         buyer_phone=body.buyer_phone,
         buyer_email=body.buyer_email,
         message=body.message,
+        consent_at=now,
+        consent_version=body.consent_version,
+        expires_at=now + timedelta(days=retention_days),
     )
     session.add(lead)
+    await session.flush()
+    await record_event(
+        session,
+        tenant_id=plot.tenant_id,
+        actor_id=None,
+        entity_type="lead",
+        entity_id=str(lead.id),
+        action="lead.created",
+        details={"plot_id": str(plot.id), "status": lead.status},
+        webhook_payload={
+            "lead": {
+                "id": str(lead.id),
+                "plot_id": str(plot.id),
+                "cadastral_number": plot.cadastral_number,
+                "buyer_name": lead.buyer_name,
+                "buyer_phone": lead.buyer_phone,
+                "buyer_email": lead.buyer_email,
+                "message": lead.message,
+            }
+        },
+    )
     await session.commit()
     return {"status": "ok", "id": str(lead.id)}
 
 
 @router.get("", response_model=list[LeadResponse])
 async def list_leads(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(
@@ -109,7 +143,7 @@ async def list_leads(
 async def update_lead(
     lead_id: str,
     body: LeadUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_role(UserRole.manager)),
     session: AsyncSession = Depends(get_session),
 ):
     lead_uuid = _parse_uuid(lead_id, "lead_id")
@@ -126,8 +160,45 @@ async def update_lead(
         raise NotFoundException("Lead not found")
 
     lead, plot = row
+    old_status = lead.status
     lead.status = body.status
+    await record_event(
+        session,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        entity_type="lead",
+        entity_id=str(lead.id),
+        action="lead.status_changed",
+        details={"old_status": old_status, "new_status": body.status},
+        webhook_payload={"lead": {"id": str(lead.id), "plot_id": str(lead.plot_id), "status": body.status}},
+    )
     await session.commit()
     await session.refresh(lead)
 
     return _lead_response(lead, plot)
+
+
+@router.delete("/{lead_id}", status_code=204)
+async def delete_lead(
+    lead_id: str,
+    current_user: User = Depends(require_role(UserRole.manager)),
+    session: AsyncSession = Depends(get_session),
+):
+    lead_uuid = _parse_uuid(lead_id, "lead_id")
+    lead = (await session.execute(select(Lead).where(
+        Lead.id == lead_uuid,
+        Lead.tenant_id == current_user.tenant_id,
+    ))).scalar_one_or_none()
+    if not lead:
+        raise NotFoundException("Lead not found")
+    await record_event(
+        session,
+        tenant_id=current_user.tenant_id,
+        actor_id=current_user.id,
+        entity_type="lead",
+        entity_id=str(lead.id),
+        action="lead.deleted",
+        details={"plot_id": str(lead.plot_id)},
+    )
+    await session.delete(lead)
+    await session.commit()
