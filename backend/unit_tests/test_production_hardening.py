@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from pydantic import ValidationError
 from shapely.geometry import box
 
@@ -110,6 +110,23 @@ async def test_refresh_token_is_not_accepted_as_bearer_token():
         await _resolve_user(token, _UserSession(user))
 
     assert exc.value.status_code == 401
+
+
+def test_browser_session_returns_only_httponly_cookies():
+    user = SimpleNamespace(
+        id=uuid4(),
+        email="admin@example.test",
+        full_name="Admin",
+        role=SimpleNamespace(value="admin"),
+        is_active=True,
+    )
+    response = Response()
+    session = auth_api._build_session_response(user, response)
+
+    assert session.model_dump().keys() == {"user"}
+    cookies = response.headers.getlist("set-cookie")
+    assert any("landsearch_session=" in cookie and "HttpOnly" in cookie for cookie in cookies)
+    assert any("landsearch_refresh=" in cookie and "HttpOnly" in cookie for cookie in cookies)
 
 
 class _FakeRedis:

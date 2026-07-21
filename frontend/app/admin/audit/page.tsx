@@ -12,7 +12,7 @@ const ACTION_LABELS: Record<string, string> = {
   'reservation.cancelled': 'Резерв отменен',
   'reservation.expired': 'Резерв истек',
   'reservation.extended': 'Резерв продлен',
-  'settlement.nspd_imported': 'Импортированы участки NSPD',
+  'settlement.nspd_imported': 'Импортированы участки НСПД',
   'settlement.published': 'Карта поселка опубликована',
   'settlement.unpublished': 'Карта поселка снята с публикации',
   'plot.created': 'Создан участок',

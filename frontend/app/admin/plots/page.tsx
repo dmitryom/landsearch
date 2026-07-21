@@ -418,12 +418,12 @@ export default function AdminPlotsPage() {
     <div className="mx-auto max-w-[1800px]">
       <div className="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--ls-muted)]">Рабочая область · NSPD</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--ls-muted)]">Рабочая область · НСПД</p>
           <h2 className="text-2xl font-bold text-[var(--ls-ink)]">Участки</h2>
         </div>
         <div className="flex w-full sm:w-auto flex-wrap items-center gap-2">
           <span className="rounded-full bg-[#e4f1ec] px-2.5 py-1 text-sm font-semibold text-[var(--ls-green-dark)]">{total} всего</span>
-          <span className="text-xs text-[var(--ls-muted)]" title="Кадастровые сведения загружены из Национальной системы пространственных данных">Источник данных: NSPD</span>
+                <span className="text-xs text-[var(--ls-muted)]" title="Кадастровые сведения загружены из Национальной системы пространственных данных">Источник данных: НСПД</span>
           <button
             type="button"
             onClick={() => { setShowCreate(!showCreate); setNspdData(null); setLookupInput(''); setLookupError(''); }}
@@ -540,7 +540,7 @@ export default function AdminPlotsPage() {
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[var(--ls-muted)]">Контроль данных</p>
         <dl className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
           <div><dt className="text-xs text-[var(--ls-muted)]">Показывается</dt><dd className="font-semibold">{firstRow}–{lastRow} из {total}</dd></div>
-          <div><dt className="text-xs text-[var(--ls-muted)]">Источник геометрии</dt><dd className="font-semibold text-[var(--ls-green-dark)]">NSPD</dd></div>
+          <div><dt className="text-xs text-[var(--ls-muted)]">Источник геометрии</dt><dd className="font-semibold text-[var(--ls-green-dark)]">НСПД</dd></div>
           <div><dt className="text-xs text-[var(--ls-muted)]">Выбрано</dt><dd className="font-semibold">{selectAllMatching ? 'Все ' + total : selectedRows.length}</dd></div>
         </dl>
       </aside>

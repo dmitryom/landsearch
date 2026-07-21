@@ -42,7 +42,7 @@ export default function AdminDashboardPage() {
     <div>
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--ls-green)]">LandSearch · NSPD</p>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[var(--ls-green)]">LandSearch · НСПД</p>
           <h1 className="text-2xl font-bold text-[var(--ls-ink)]">Дашборд</h1>
         </div>
         <span className="hidden text-xs text-[var(--ls-muted)] sm:block">Состояние земельного фонда</span>

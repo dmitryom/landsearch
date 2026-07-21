@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const adminLayout = new URL('../app/admin/layout.tsx', import.meta.url)
+const adminLayout = new URL('../app/admin/AdminShell.tsx', import.meta.url)
 const homePage = new URL('../app/page.tsx', import.meta.url)
 
 test('admin side navigation can be hidden and pinned persistently', async () => {

@@ -114,7 +114,7 @@ export default function MapOrientationControls({
         title={`Уровень масштаба: ${zoom.toFixed(1)}`}
         className="flex h-7 min-w-11 items-center justify-center border-b border-[var(--ls-line)] bg-[#f7faf8] text-[10px] font-semibold tabular-nums text-[var(--ls-muted)]"
       >
-        Z {zoom.toFixed(1)}
+        Масштаб {zoom.toFixed(1)}
       </output>
       <button
         type="button"

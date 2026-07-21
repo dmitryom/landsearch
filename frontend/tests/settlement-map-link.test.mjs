@@ -10,9 +10,11 @@ import test from 'node:test'
 const settlementPage = new URL('../app/settlements/[id]/page.tsx', import.meta.url)
 const homePage = new URL('../app/page.tsx', import.meta.url)
 const standaloneMapPage = new URL('../app/map/page.tsx', import.meta.url)
+const standaloneMapShell = new URL('../app/map/MapShell.tsx', import.meta.url)
 const plotDetailPage = new URL('../app/plots/[id]/page.tsx', import.meta.url)
 const loginPage = new URL('../app/auth/login/page.tsx', import.meta.url)
 const adminLayout = new URL('../app/admin/layout.tsx', import.meta.url)
+const adminShell = new URL('../app/admin/AdminShell.tsx', import.meta.url)
 const adminDashboardPage = new URL('../app/admin/page.tsx', import.meta.url)
 const adminLeadsPage = new URL('../app/admin/leads/page.tsx', import.meta.url)
 const adminPlotsPage = new URL('../app/admin/plots/page.tsx', import.meta.url)
@@ -160,7 +162,7 @@ test('neutral NSPD cadastre has an independent toggle without moving the viewpor
   const toggleBlock = layerSwitcher.slice(toggleStart, toggleEnd)
 
   assert.notEqual(toggleStart, -1)
-  assert.match(layerSwitcher, /Нейтральный кадастр NSPD/)
+  assert.match(layerSwitcher, /Нейтральный кадастр НСПД/)
   assert.match(layerSwitcher, /Все кадастровые объекты Татарстана/)
   assert.doesNotMatch(toggleBlock, /fitBounds/)
   assert.doesNotMatch(layerSwitcher, /TATARSTAN_BOUNDS/)
@@ -231,7 +233,7 @@ test('right-side map controls show a live numeric zoom level between zoom button
   assert.match(controls, /const \[zoom, setZoom\] = useState\(\(\) => map\.getZoom\(\)\)/)
   assert.match(controls, /map\.on\('zoom', syncZoom\)/)
   assert.match(controls, /map\.off\('zoom', syncZoom\)/)
-  assert.match(controls, /Z \{zoom\.toFixed\(1\)\}/)
+  assert.match(controls, /Масштаб \{zoom\.toFixed\(1\)\}/)
   assert.ok(zoomInIndex >= 0)
   assert.ok(zoomInIndex < zoomLevelIndex)
   assert.ok(zoomLevelIndex < zoomOutIndex)
@@ -277,7 +279,7 @@ test('road map layers use the approved neutral asphalt palette and OpenMapTiles 
 
 test('public maps expose and persist the OSM road layer across style switches', async () => {
   const home = await readFile(homePage, 'utf8')
-  const standaloneMap = await readFile(standaloneMapPage, 'utf8')
+  const standaloneMap = await readFile(standaloneMapShell, 'utf8')
   const mapView = await readFile(mapViewComponent, 'utf8')
   const layerSwitcher = await readFile(layerSwitcherComponent, 'utf8')
   const persistence = await readFile(persistentBooleanModule, 'utf8')
@@ -417,7 +419,7 @@ test('admin exposes tenant-scoped bulk status editing', async () => {
 })
 
 test('admin exposes manual settlement boundary editor with polygon and radius modes', async () => {
-  const adminLayoutSource = await readFile(adminLayout, 'utf8')
+  const adminLayoutSource = await readFile(adminShell, 'utf8')
   const api = await readFile(apiClient, 'utf8')
   const page = await readFile(adminSettlementsPage, 'utf8')
   const editor = await readFile(boundaryEditorComponent, 'utf8')
@@ -434,7 +436,7 @@ test('admin exposes manual settlement boundary editor with polygon and radius mo
   assert.match(editorSource, /Сохранить границу/)
   assert.match(editorSource, /Сбросить границу/)
   assert.match(editorSource, /Посчитать участки по границе/)
-  assert.match(editorSource, /Импортировать участки NSPD по границе/)
+  assert.match(editorSource, /Импортировать участки НСПД по границе/)
   assert.match(editorSource, /внутри не более 50%/)
   assert.match(editorSource, /более чем на 50% площади внутри границы/)
   assert.match(editorSource, /отвязано за границей/)
@@ -537,7 +539,7 @@ test('base-layer switches serialize rapid user clicks before replacing map style
 })
 
 test('admin leads page lists leads and updates lifecycle status', async () => {
-  const layout = await readFile(adminLayout, 'utf8')
+  const layout = await readFile(adminShell, 'utf8')
   const leads = await readFile(adminLeadsPage, 'utf8')
   const api = await readFile(apiClient, 'utf8')
 
@@ -580,7 +582,7 @@ test('admin plots table exposes server pagination for the full NSPD dataset', as
   assert.match(adminPlots, /page_size: String\(size\)/)
   assert.match(adminPlots, /params\.query = query\.trim\(\)/)
   assert.match(adminPlots, /searchQuery/)
-  assert.match(adminPlots, /Источник данных: NSPD/)
+  assert.match(adminPlots, /Источник данных: НСПД/)
   assert.match(adminPlots, /pageSize=\{pageSize\}/)
   assert.match(adminPlots, /hidePagination/)
   assert.match(adminPlots, /manualPagination/)
@@ -649,7 +651,7 @@ test('plot result tray and popup keep selection accessible and resizable', async
 })
 
 test('admin workspace uses the shared map-first design system responsively', async () => {
-  const layout = await readFile(adminLayout, 'utf8')
+  const layout = await readFile(adminShell, 'utf8')
   const dashboard = await readFile(adminDashboardPage, 'utf8')
   const leads = await readFile(adminLeadsPage, 'utf8')
   const plots = await readFile(adminPlotsPage, 'utf8')
@@ -832,7 +834,7 @@ test('plot popup shows price per sotka and NSPD source context', async () => {
   const popup = await readFile(plotPopupComponent, 'utf8')
 
   assert.match(popup, /Цена за сотку/)
-  assert.match(popup, /Источник: NSPD/)
+  assert.match(popup, /Источник: НСПД/)
   assert.match(popup, /updated_at/)
 })
 

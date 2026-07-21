@@ -30,10 +30,10 @@ const BASE_ICONS = {
 } as const
 
 const DATA_LAYERS: Array<{ key: NspdLayerKey; label: string; source: string; Icon: typeof Building2 }> = [
-  { key: 'plots', label: 'Участки NSPD', source: 'NSPD 36048', Icon: MapPinned },
-  { key: 'buildings', label: 'Здания', source: 'NSPD 36049', Icon: Building2 },
-  { key: 'structures', label: 'Сооружения', source: 'NSPD 36328', Icon: Database },
-  { key: 'unfinished', label: 'Незавершённое строительство', source: 'NSPD 36329', Icon: ShieldAlert },
+  { key: 'plots', label: 'Участки НСПД', source: 'НСПД 36048', Icon: MapPinned },
+  { key: 'buildings', label: 'Здания', source: 'НСПД 36049', Icon: Building2 },
+  { key: 'structures', label: 'Сооружения', source: 'НСПД 36328', Icon: Database },
+  { key: 'unfinished', label: 'Незавершённое строительство', source: 'НСПД 36329', Icon: ShieldAlert },
 ]
 
 export default function LayerSwitcher({
@@ -223,12 +223,12 @@ export default function LayerSwitcher({
                   id="tatarstan-cadastre"
                   type="checkbox"
                   checked={showTatarstanCadastre}
-                  aria-label="Показать нейтральный кадастр NSPD"
+                  aria-label="Показать нейтральный кадастр НСПД"
                   onChange={(event) => toggleMaster(event.target.checked)}
                   className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[var(--ls-green)] focus:ring-[var(--ls-green)]"
                 />
                 <label htmlFor="tatarstan-cadastre" className="min-w-0 text-xs font-semibold text-[var(--ls-ink)]">
-                  Нейтральный кадастр NSPD
+                  Нейтральный кадастр НСПД
                   <span className="mt-0.5 block text-[10px] font-normal text-[var(--ls-muted)]">Все кадастровые объекты Татарстана</span>
                 </label>
               </div>
@@ -244,7 +244,7 @@ export default function LayerSwitcher({
               </div>
               <label className="mt-3 block border-t border-[var(--ls-line)] pt-3 text-[11px] font-semibold text-[var(--ls-ink)]">
                 Прозрачность слоёв
-                <input type="range" min="0.2" max="1" step="0.05" value={nspdOpacity} onChange={(event) => onNspdOpacityChange?.(Number(event.target.value))} className="mt-2 w-full accent-[var(--ls-green)]" aria-label="Прозрачность слоёв NSPD" />
+                <input type="range" min="0.2" max="1" step="0.05" value={nspdOpacity} onChange={(event) => onNspdOpacityChange?.(Number(event.target.value))} className="mt-2 w-full accent-[var(--ls-green)]" aria-label="Прозрачность слоёв НСПД" />
               </label>
             </div>
           )}

@@ -109,6 +109,7 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
         <input
           id={`${idPrefix}-lead-email`}
           type="email"
+          autoComplete="email"
           value={form.buyer_email}
           onChange={(e) => updateField('buyer_email', e.target.value)}
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
@@ -137,7 +138,7 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
           onChange={(event) => setConsentGiven(event.target.checked)}
           className="mt-0.5 h-4 w-4 shrink-0"
         />
-        <span>Я согласен на обработку персональных данных в соответствии с <a href="/privacy" target="_blank" className="text-blue-700 underline">политикой конфиденциальности</a>.</span>
+        <span>Я согласен на обработку имени, телефона, электронной почты и комментария для ответа по выбранному участку. Срок хранения — не дольше срока, указанного оператором. <a href="/privacy" target="_blank" className="text-blue-700 underline">Политика обработки данных</a> · <a href="/operator" target="_blank" className="text-blue-700 underline">оператор и контакты</a>.</span>
       </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}

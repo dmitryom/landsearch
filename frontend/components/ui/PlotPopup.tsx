@@ -11,7 +11,7 @@ type PlotTab = 'overview' | 'cadastre' | 'restrictions' | 'infrastructure' | 'so
 
 const TABS: Array<{ id: PlotTab; label: string }> = [
   { id: 'overview', label: 'Обзор' },
-  { id: 'cadastre', label: 'Кадастр NSPD' },
+  { id: 'cadastre', label: 'Кадастр НСПД' },
   { id: 'restrictions', label: 'Ограничения' },
   { id: 'infrastructure', label: 'Инфраструктура' },
   { id: 'source', label: 'Источник' },
@@ -166,7 +166,7 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
         {tab === 'restrictions' && (
           <div className="rounded-md border border-[#e8d9b7] bg-[#fffaf0] p-3 text-sm text-[#765b20]">
             <strong className="block text-[var(--ls-ink)]">Ограничения требуют проверки</strong>
-            <span className="mt-1 block text-xs leading-5">Подключённые ограничения и зональные слои отображаются на карте, если доступны из NSPD. Публичные данные не заменяют юридическую проверку.</span>
+            <span className="mt-1 block text-xs leading-5">Подключённые ограничения и зональные слои отображаются на карте, если доступны из НСПД. Публичные данные не заменяют юридическую проверку.</span>
           </div>
         )}
         {tab === 'infrastructure' && (
@@ -177,8 +177,8 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
         )}
         {tab === 'source' && (
           <div className="space-y-3">
-            <div className="rounded-md border border-[#bad8ca] bg-[#f4fbf7] p-3 text-xs leading-5 text-[var(--ls-muted)]"><strong className="block text-sm text-[var(--ls-green-dark)]">Источник: NSPD</strong>Кадастровые границы и атрибуты получены из официального слоя. Дата обновления: {plot.updated_at ? new Date(plot.updated_at).toLocaleDateString('ru-RU') : 'не указана'}.</div>
-            <a href="https://nspd.gov.ru/" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[var(--ls-blue)] hover:underline">Открыть NSPD <ExternalLink className="h-4 w-4" aria-hidden="true" /></a>
+            <div className="rounded-md border border-[#bad8ca] bg-[#f4fbf7] p-3 text-xs leading-5 text-[var(--ls-muted)]"><strong className="block text-sm text-[var(--ls-green-dark)]">Источник: НСПД</strong>Кадастровые границы и атрибуты получены из Национальной системы пространственных данных. Дата обновления: {plot.updated_at ? new Date(plot.updated_at).toLocaleDateString('ru-RU') : 'не указана'}.</div>
+            <a href="https://nspd.gov.ru/" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[var(--ls-blue)] hover:underline">Открыть НСПД <ExternalLink className="h-4 w-4" aria-hidden="true" /></a>
           </div>
         )}
 

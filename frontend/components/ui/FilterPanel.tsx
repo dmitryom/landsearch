@@ -12,7 +12,14 @@ interface FilterPanelProps {
   onClose?: () => void
 }
 
-const PERMITTED_USES = ['ИЖС', 'ЛПХ', 'СНТ', 'ДНП', 'ОГП', 'Коммерция']
+const PERMITTED_USES = [
+  { value: 'ИЖС', label: 'Индивидуальное жилищное строительство' },
+  { value: 'ЛПХ', label: 'Личное подсобное хозяйство' },
+  { value: 'СНТ', label: 'Садоводство' },
+  { value: 'ДНП', label: 'Дачное хозяйство' },
+  { value: 'ОГП', label: 'Территории общего пользования' },
+  { value: 'Коммерция', label: 'Коммерческое использование' },
+]
 const CATEGORIES = ['Земли населённых пунктов', 'Земли сельхозназначения', 'Земли промышленности']
 
 const SORT_FIELDS = [
@@ -188,14 +195,14 @@ export default function FilterPanel({ filters, onChange, width, mobile = false, 
         <Section id="vri" title="Вид разрешённого использования">
           <div className="space-y-1.5">
             {PERMITTED_USES.map((u) => (
-              <label key={u} className="flex items-center gap-2.5 cursor-pointer group">
+              <label key={u.value} className="flex items-center gap-2.5 cursor-pointer group">
                 <input
                   type="checkbox"
-                  checked={filters.permitted_use === u}
-                  onChange={() => set('permitted_use', filters.permitted_use === u ? '' : u)}
+                  checked={filters.permitted_use === u.value}
+                  onChange={() => set('permitted_use', filters.permitted_use === u.value ? '' : u.value)}
                   className="h-4 w-4 rounded border-gray-300 text-[var(--ls-green)] focus:ring-[var(--ls-green)]"
                 />
-                <span className="text-sm text-gray-700 group-hover:text-gray-900">{u}</span>
+                <span className="text-sm text-gray-700 group-hover:text-gray-900">{u.label}</span>
               </label>
             ))}
           </div>

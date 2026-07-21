@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { api, type SettlementAnalysis } from '@/lib/api'
-import { STATUS_COLORS, BASE_LAYERS, DEFAULT_BASE_LAYER_ID } from '@/lib/constants'
+import { STATUS_COLORS, BASE_LAYERS, DEFAULT_BASE_LAYER_ID, VRI_LABELS } from '@/lib/constants'
 import { buildPlotTileUrl } from '@/lib/map-tiles'
 import { addPlotTileLayers } from '@/lib/plot-map-layers'
 import { addRoadLayers } from '@/lib/road-map-layers'
@@ -125,7 +125,7 @@ export default function SettlementAnalysisPage() {
         <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
           <Home className="w-5 h-5 text-white" />
         </div>
-        <h1 className="text-lg font-bold text-gray-900">Поселение</h1>
+        <h1 className="text-lg font-bold text-gray-900">{analysis?.settlement_name || 'Поселение'}</h1>
         {id === LANDSCANNER_MAP_SETTLEMENT_ID && (
           <Link
             href={`/settlements/${id}/map`}
@@ -215,7 +215,7 @@ export default function SettlementAnalysisPage() {
                   {vriEntries.map(([code, count]) => (
                     <div key={code} className="flex items-center gap-2 text-sm">
                       <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: VRI_COLORS[code] || VRI_DEFAULT_COLOR }} />
-                      <span className="text-gray-600 min-w-[80px]">{code}</span>
+                      <span className="min-w-[80px] text-gray-600" title={`Код ВРИ: ${code}`}>{VRI_LABELS[code] || code}</span>
                       <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
                         <div
                           className="h-full rounded-full transition-all"

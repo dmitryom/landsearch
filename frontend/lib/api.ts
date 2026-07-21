@@ -137,8 +137,6 @@ export interface SearchSuggestion {
 }
 
 export interface AuthResponse {
-  access_token: string
-  refresh_token: string
   user: {
     id: string
     email: string
@@ -301,9 +299,6 @@ export interface PoiFeatureCollection {
   }>
 }
 
-import { safeGet } from './storage'
-
-
 class ApiError extends Error {
   status: number
   constructor(message: string, status: number) {
@@ -316,12 +311,10 @@ class ApiError extends Error {
 const API = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? safeGet('token') : null
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
-  const res = await fetch(`${API}${path}`, { ...options, headers })
+  const res = await fetch(`${API}${path}`, { ...options, headers, credentials: 'include' })
   if (!res.ok) {
     let message: string
     try {
@@ -476,11 +469,13 @@ export const api = {
         body: JSON.stringify(data),
       }),
     me: () => request<UserResponse>('/auth/me'),
-    refresh: (refresh_token: string) =>
+    exportData: () => request<Record<string, unknown>>('/auth/me/export'),
+    deleteAccount: () => request<void>('/auth/me', { method: 'DELETE' }),
+    refresh: () =>
       request<AuthResponse>('/auth/refresh', {
         method: 'POST',
-        body: JSON.stringify({ refresh_token }),
       }),
+    logout: () => request<void>('/auth/logout', { method: 'POST' }),
   },
   leads: {
     create: (data: { plot_id: string; buyer_name?: string; buyer_phone?: string; buyer_email?: string; message?: string; consent_given: true; consent_version?: string }) =>
@@ -521,13 +516,12 @@ export const api = {
   },
   imports: {
     upload: async (file: File, settlement_id?: string) => {
-      const token = safeGet('token')
       const form = new FormData()
       form.append('file', file)
       if (settlement_id) form.append('settlement_id', settlement_id)
       const res = await fetch(`${API}/import/excel`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
         body: form,
       })
       if (!res.ok) {

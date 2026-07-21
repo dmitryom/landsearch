@@ -33,16 +33,19 @@ export default function RegisterPage() {
             <input
               id="company-name"
               type="text"
+              autoComplete="organization"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 border rounded-lg"
             />
           </div>
+          <p className="text-xs leading-5 text-gray-600">Регистрация нужна для доступа к рабочей области. Данные учетной записи используются для входа и безопасности сервиса и хранятся до удаления учетной записи либо наступления установленного оператором срока.</p>
           <div>
             <label htmlFor="register-email" className="block text-sm mb-1">Электронная почта</label>
             <input
               id="register-email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -54,6 +57,7 @@ export default function RegisterPage() {
             <input
               id="register-password"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

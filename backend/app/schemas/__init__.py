@@ -32,13 +32,19 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
+class SessionResponse(BaseModel):
+    """Browser session response; tokens are delivered only via HttpOnly cookies."""
+
+    user: UserResponse
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class PlotCreate(BaseModel):
