@@ -17,10 +17,12 @@ NEXT_PUBLIC_SITE_URL="${SITE_URL:-https://v3163460.hosted-by-vdsina.ru}" \
 NEXT_PUBLIC_API_URL="${API_URL:-https://v3163460.hosted-by-vdsina.ru/api/v1}" \
 NODE_ENV=production npm run build
 
-# 3. Copy static files & BUILD_ID into standalone for correct serving
+# 3. Copy static files & BUILD_ID into standalone for correct serving.
+# nginx serves /_next/static from the shared .next/static directory, while
+# the standalone server also needs the same files inside its own bundle.
 if [ -d "$STANDALONE_DIR" ]; then
-    mkdir -p "$STANDALONE_DIR/.next"
-    cp -r "$BUILD_DIR/static" "$STANDALONE_DIR/.next/static"
+    mkdir -p "$STANDALONE_DIR/.next" "$STANDALONE_DIR/.next/static" "$BUILD_DIR/static"
+    cp -R "$BUILD_DIR/static/." "$STANDALONE_DIR/.next/static/"
     cp "$BUILD_DIR/BUILD_ID" "$STANDALONE_DIR/.next/BUILD_ID" 2>/dev/null || true
 fi
 
