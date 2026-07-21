@@ -138,3 +138,41 @@ async def test_create_lead_requires_personal_data_consent(client: AsyncClient):
         },
     )
     assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_lead_assignment_and_first_response_are_tracked(client: AsyncClient, auth_headers: dict[str, str]):
+    plot = (await client.get("/api/v1/plots?page_size=1")).json()["items"][0]
+    create_res = await client.post(
+        "/api/v1/leads",
+        json={
+            "plot_id": plot["id"],
+            "buyer_name": "Оператор пилота",
+            "buyer_phone": "+7 (999) 333-44-55",
+            "buyer_email": f"assignment{uuid.uuid4().hex[:8]}@example.com",
+            "consent_given": True,
+        },
+    )
+    assert create_res.status_code == 201
+    lead_id = create_res.json()["id"]
+
+    assignees = await client.get("/api/v1/leads/assignees", headers=auth_headers)
+    assert assignees.status_code == 200
+    assert assignees.json()
+
+    assigned = await client.patch(
+        f"/api/v1/leads/{lead_id}/assign",
+        json={"assigned_user_id": assignees.json()[0]["id"]},
+        headers=auth_headers,
+    )
+    assert assigned.status_code == 200
+    assert assigned.json()["assigned_user_id"] == assignees.json()[0]["id"]
+
+    in_progress = await client.patch(
+        f"/api/v1/leads/{lead_id}",
+        json={"status": "in_progress"},
+        headers=auth_headers,
+    )
+    assert in_progress.status_code == 200
+    assert in_progress.json()["first_response_at"]
+    assert in_progress.json()["response_due_at"] is None

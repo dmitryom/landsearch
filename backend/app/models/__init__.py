@@ -228,6 +228,11 @@ class SettlementPoi(Base):
 class Lead(Base):
     __tablename__ = "leads"
 
+    __table_args__ = (
+        Index("idx_leads_tenant_status_created", "tenant_id", "status", "created_at"),
+        Index("idx_leads_assigned_user", "tenant_id", "assigned_user_id"),
+    )
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
     plot_id = Column(UUID(as_uuid=True), ForeignKey("plots.id"), nullable=False)
@@ -236,12 +241,16 @@ class Lead(Base):
     buyer_email = Column(String(255))
     message = Column(Text)
     status = Column(String(50), default="new")
+    assigned_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    assigned_at = Column(DateTime(timezone=True), nullable=True)
+    first_response_at = Column(DateTime(timezone=True), nullable=True)
     consent_at = Column(DateTime(timezone=True))
     consent_version = Column(String(32))
     expires_at = Column(DateTime(timezone=True), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant", back_populates="leads")
+    assigned_user = relationship("User", foreign_keys=[assigned_user_id])
 
 
 class Reservation(Base):

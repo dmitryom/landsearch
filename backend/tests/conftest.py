@@ -74,5 +74,7 @@ async def auth_headers(client: AsyncClient) -> dict[str, str]:
         json={"email": "admin@demo.landsearch", "password": "demo123456"},
     )
     assert res.status_code == 200
-    data = res.json()
-    return {"Authorization": f"Bearer {data['access_token']}"}
+    assert res.cookies.get("landsearch_session")
+    # Authentication is intentionally cookie-based in production. The client
+    # keeps the HttpOnly session cookie for subsequent requests.
+    return {}

@@ -138,6 +138,13 @@ class PlotResponse(BaseModel):
     is_active: bool = True
     settlement_id: str | None = None
     vri_code: str | None = None
+    data_source: str = "unknown"
+    source_fetched_at: datetime | None = None
+    commercial_updated_at: datetime | None = None
+    status_updated_at: datetime | None = None
+    geometry_quality: str = "missing"
+    data_quality_issues: list[str] = Field(default_factory=list)
+    is_publishable: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -281,7 +288,27 @@ LeadStatus = Literal["new", "in_progress", "closed", "spam"]
 
 
 class LeadUpdate(BaseModel):
-    status: LeadStatus
+    status: LeadStatus | None = None
+    assigned_user_id: str | None = None
+
+
+class LeadAssignmentUpdate(BaseModel):
+    assigned_user_id: str | None = None
+
+
+class LeadAssigneeResponse(BaseModel):
+    id: str
+    full_name: str | None = None
+    email: str
+    role: str
+
+
+class PlotStatusHistoryResponse(BaseModel):
+    id: str
+    old_status: str | None = None
+    new_status: str
+    changed_by: str | None = None
+    changed_at: datetime
 
 
 class LeadResponse(BaseModel):
@@ -300,6 +327,11 @@ class LeadResponse(BaseModel):
     consent_at: datetime | None = None
     consent_version: str | None = None
     expires_at: datetime | None = None
+    assigned_user_id: str | None = None
+    assigned_user_name: str | None = None
+    assigned_at: datetime | None = None
+    first_response_at: datetime | None = None
+    response_due_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

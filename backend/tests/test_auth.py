@@ -12,12 +12,10 @@ async def test_login_success(client: AsyncClient):
     )
     assert res.status_code == 200
     data = res.json()
-    assert "access_token" in data
-    assert "refresh_token" in data
-    assert data["token_type"] == "bearer"
     assert data["user"]["email"] == "admin@demo.landsearch"
     cookie = res.cookies.get("landsearch_session")
     assert cookie
+    assert res.cookies.get("landsearch_refresh")
     assert "HttpOnly" in res.headers["set-cookie"]
     assert "SameSite=lax" in res.headers["set-cookie"]
 
@@ -65,16 +63,15 @@ async def test_refresh_token(client: AsyncClient):
         "/api/v1/auth/login",
         json={"email": "admin@demo.landsearch", "password": "demo123456"},
     )
-    refresh_token = login_res.json()["refresh_token"]
+    assert login_res.cookies.get("landsearch_refresh")
 
     res = await client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": refresh_token},
     )
     assert res.status_code == 200
     data = res.json()
-    assert "access_token" in data
     assert data["user"]["email"] == "admin@demo.landsearch"
+    assert res.cookies.get("landsearch_session")
 
 
 @pytest.mark.asyncio
@@ -100,8 +97,8 @@ async def test_register(client: AsyncClient):
     )
     assert res.status_code == 200
     data = res.json()
-    assert "access_token" in data
     assert data["user"]["email"] == email
+    assert res.cookies.get("landsearch_session")
 
 
 @pytest.mark.asyncio

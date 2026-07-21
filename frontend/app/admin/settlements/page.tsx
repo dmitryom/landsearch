@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { api, type Settlement, type SettlementCreate } from '@/lib/api'
 import BoundaryEditor from '@/components/admin/BoundaryEditor'
 
@@ -44,6 +45,7 @@ export default function AdminSettlementsPage() {
   const [importOpen, setImportOpen] = useState(false)
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [notice, setNotice] = useState('')
 
   const loadSettlements = useCallback(() => {
@@ -110,6 +112,28 @@ export default function AdminSettlementsPage() {
     }
   }
 
+  const deleteSettlement = async () => {
+    if (!selected) return
+    const selectedSettlement = selected
+    if (!window.confirm(`Удалить поселок «${selectedSettlement.name}»? Сам поселок и его граница будут удалены. Связанные участки не удалятся, а будут отвязаны от поселка.`)) return
+
+    setError('')
+    setNotice('')
+    setDeleting(true)
+    try {
+      const result = await api.settlements.delete(selectedSettlement.id)
+      const selectedIdToDelete = selectedSettlement.id
+      setSettlements((items) => items.filter((item) => item.id !== selectedIdToDelete))
+      setSelected(null)
+      setSelectedId('')
+      setNotice(`Поселок «${result.name}» удален. Участков отвязано: ${result.unlinked_plots}.`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось удалить поселок')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -150,7 +174,29 @@ export default function AdminSettlementsPage() {
           </div>
         </section>
       )}
-      {selected && <BoundaryEditor key={selected.id} settlement={selected} onSaved={setSelected} />}
+      {selected && (
+        <>
+          <section className="flex flex-col gap-3 rounded-md border border-[var(--ls-line)] bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--ls-muted)]">Выбранный поселок</p>
+              <h2 className="mt-1 truncate text-lg font-semibold text-[var(--ls-ink)]">{selected.name}</h2>
+              <p className="mt-1 text-xs text-[var(--ls-muted)]">Удаление отвяжет связанные участки, но не удалит их из базы.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void deleteSettlement()}
+              disabled={deleting}
+              aria-label={`Удалить поселок ${selected.name}`}
+              title="Удалить поселок"
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-md border border-red-200 px-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+              {deleting ? 'Удаление...' : 'Удалить поселок'}
+            </button>
+          </section>
+          <BoundaryEditor key={selected.id} settlement={selected} onSaved={setSelected} />
+        </>
+      )}
     </div>
   )
 }

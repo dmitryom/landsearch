@@ -20,6 +20,13 @@ export interface Plot {
   geometry?: Record<string, unknown>
   center_lng?: number
   center_lat?: number
+  data_source?: string
+  source_fetched_at?: string | null
+  commercial_updated_at?: string | null
+  status_updated_at?: string | null
+  geometry_quality?: 'verified' | 'manual' | 'missing' | string
+  data_quality_issues?: string[]
+  is_publishable?: boolean
   created_at: string
   updated_at: string
 }
@@ -181,7 +188,27 @@ export interface LeadResponse {
   consent_at?: string
   consent_version?: string
   expires_at?: string
+  assigned_user_id?: string
+  assigned_user_name?: string
+  assigned_at?: string
+  first_response_at?: string
+  response_due_at?: string
   created_at: string
+}
+
+export interface LeadAssignee {
+  id: string
+  full_name?: string
+  email: string
+  role: string
+}
+
+export interface PlotStatusHistoryResponse {
+  id: string
+  old_status?: string
+  new_status: string
+  changed_by?: string
+  changed_at: string
 }
 
 export type ReservationStatus = 'active' | 'confirmed' | 'cancelled' | 'expired'
@@ -383,6 +410,7 @@ export const api = {
       return request<PlotGeoJSON>(`/plots/geo${qs}`)
     },
     get: (id: string) => request<Plot>(`/plots/${id}`),
+    statusHistory: (id: string) => request<PlotStatusHistoryResponse[]>(`/plots/${id}/status-history`),
     create: (data: Partial<Plot>) =>
       request<Plot>('/plots', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Plot>) =>
@@ -481,8 +509,11 @@ export const api = {
     create: (data: { plot_id: string; buyer_name?: string; buyer_phone?: string; buyer_email?: string; message?: string; consent_given: true; consent_version?: string }) =>
       request<{ status: string; id: string }>('/leads', { method: 'POST', body: JSON.stringify(data) }),
     list: () => request<LeadResponse[]>('/leads'),
+    assignees: () => request<LeadAssignee[]>('/leads/assignees'),
     update: (id: string, data: { status: LeadStatus }) =>
       request<LeadResponse>(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    assign: (id: string, assigned_user_id?: string) =>
+      request<LeadResponse>(`/leads/${id}/assign`, { method: 'PATCH', body: JSON.stringify({ assigned_user_id }) }),
     delete: (id: string) => request<void>(`/leads/${id}`, { method: 'DELETE' }),
   },
   reservations: {

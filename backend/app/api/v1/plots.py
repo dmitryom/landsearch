@@ -17,7 +17,7 @@ from ...core.database import get_session
 from ...core.exceptions import BadRequestException, ConflictException, NotFoundException
 from ...metrics import CACHE_HITS, CACHE_MISSES, PLOTS_GEO_TOTAL
 from ...models import Plot, PlotStatus, Reservation, ReservationStatus, Settlement, User, UserRole
-from ...schemas import BulkPlotDelete, BulkPlotStatusUpdate, PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotStatsResponse, PlotUpdate
+from ...schemas import BulkPlotDelete, BulkPlotStatusUpdate, PlotCreate, PlotGeoJSON, PlotListResponse, PlotResponse, PlotStatsResponse, PlotStatusHistoryResponse, PlotUpdate
 from ...services.cadastre import (
     NSPD_WMS_LAYERS,
     batch_enrich,
@@ -28,6 +28,7 @@ from ...services.cadastre import (
 from ...services.boundary_coverage import boundary_covers_majority, boundary_covers_majority_sql
 from ...services.audit import record_event
 from ...services.similar import find_similar_plots
+from ...services.plot_metadata import mark_plot_commercial_update
 from ...utils.plot_helpers import plot_to_response
 from ...services.vri import normalize_vri
 from ..deps import get_current_user, get_tenant_scope_optional, require_role
@@ -798,6 +799,40 @@ async def similar_plots(
     return [plot_to_response(p) for p in results]
 
 
+@router.get("/{plot_id}/status-history", response_model=list[PlotStatusHistoryResponse])
+async def plot_status_history(
+    plot_id: str,
+    session: AsyncSession = Depends(get_session),
+    tenant_id: UUID | None = Depends(get_tenant_scope_optional),
+):
+    if tenant_id is None:
+        raise NotFoundException("Plot not found")
+    plot_uuid = _parse_uuid(plot_id, "plot_id")
+    plot_exists = await session.execute(
+        select(Plot.id).where(Plot.id == plot_uuid, Plot.tenant_id == tenant_id, Plot.is_active)
+    )
+    if plot_exists.scalar_one_or_none() is None:
+        raise NotFoundException("Plot not found")
+    from ...models import PlotStatusHistory
+
+    result = await session.execute(
+        select(PlotStatusHistory)
+        .where(PlotStatusHistory.plot_id == plot_uuid)
+        .order_by(PlotStatusHistory.changed_at.desc())
+        .limit(50)
+    )
+    return [
+        PlotStatusHistoryResponse(
+            id=str(item.id),
+            old_status=item.old_status,
+            new_status=item.new_status,
+            changed_by=str(item.changed_by) if item.changed_by else None,
+            changed_at=item.changed_at,
+        )
+        for item in result.scalars().all()
+    ]
+
+
 @router.post("", response_model=PlotResponse, status_code=201)
 async def create_plot(
     body: PlotCreate,
@@ -830,6 +865,7 @@ async def create_plot(
     )
     if body.area_m2 and body.price:
         plot.price_per_hectare = body.price / (body.area_m2 / 10000)
+    mark_plot_commercial_update(plot, status_changed=body.status is not None)
 
     session.add(plot)
     await session.flush()
@@ -891,6 +927,9 @@ async def update_plot(
 
     for key, value in update_data.items():
         setattr(plot, key, value)
+
+    if update_data:
+        mark_plot_commercial_update(plot, status_changed=new_status_value is not None and new_status_value != current_status_value)
 
     if plot.area_m2 and plot.price:
         plot.price_per_hectare = plot.price / (plot.area_m2 / 10000)
@@ -958,6 +997,7 @@ async def bulk_update_plot_status(
             changed_by=current_user.id,
         ))
         plot.status = body.status
+        mark_plot_commercial_update(plot, status_changed=True)
         changed += 1
     if changed:
         await record_event(

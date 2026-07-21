@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ExternalLink, Mail, Phone, RefreshCcw, Trash2 } from 'lucide-react'
-import { api, type LeadResponse, type LeadStatus } from '@/lib/api'
+import { Clock3, ExternalLink, Mail, Phone, RefreshCcw, Trash2, UserRound } from 'lucide-react'
+import { api, type LeadAssignee, type LeadResponse, type LeadStatus } from '@/lib/api'
 
 const LEAD_STATUSES: Array<{ value: LeadStatus; label: string; className: string }> = [
   { value: 'new', label: 'Новая', className: 'bg-blue-50 text-blue-700' },
@@ -39,16 +39,32 @@ export default function AdminLeadsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [assignees, setAssignees] = useState<LeadAssignee[]>([])
 
   const loadLeads = async () => {
     setLoading(true)
     setError('')
     try {
-      setLeads(await api.leads.list())
+      const [nextLeads, nextAssignees] = await Promise.all([api.leads.list(), api.leads.assignees()])
+      setLeads(nextLeads)
+      setAssignees(nextAssignees)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить заявки')
     }
     setLoading(false)
+  }
+
+  const assignLead = async (leadId: string, assignedUserId?: string) => {
+    setUpdatingId(leadId)
+    setError('')
+    try {
+      const updated = await api.leads.assign(leadId, assignedUserId)
+      setLeads((items) => items.map((lead) => lead.id === leadId ? updated : lead))
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось назначить заявку')
+    } finally {
+      setUpdatingId(null)
+    }
   }
 
   useEffect(() => {
@@ -144,6 +160,7 @@ export default function AdminLeadsPage() {
           <div className="divide-y divide-gray-100">
             {leads.map((lead) => {
               const status = STATUS_BY_VALUE[lead.status] || STATUS_BY_VALUE.new
+              const overdue = Boolean(lead.response_due_at && !lead.first_response_at && new Date(lead.response_due_at).getTime() < Date.now() && lead.status !== 'closed' && lead.status !== 'spam')
               return (
                 <article key={lead.id} className="grid gap-4 p-4 lg:grid-cols-[1.4fr_1.1fr_220px]">
                   <div>
@@ -151,6 +168,7 @@ export default function AdminLeadsPage() {
                       <span className={`rounded px-2 py-1 text-xs font-medium ${status.className}`}>
                         {status.label}
                       </span>
+                      {overdue && <span className="inline-flex items-center gap-1 rounded bg-red-50 px-2 py-1 text-xs font-medium text-red-700"><Clock3 className="h-3 w-3" />Просрочен ответ</span>}
                       <span className="text-xs text-gray-500">{formatDate(lead.created_at)}</span>
                     </div>
                     <p className="font-medium text-gray-900">
@@ -207,6 +225,27 @@ export default function AdminLeadsPage() {
                         <option key={item.value} value={item.value}>{item.label}</option>
                       ))}
                     </select>
+                    <label htmlFor={`lead-assignee-${lead.id}`} className="mb-1 mt-3 text-xs font-medium text-gray-500">Ответственный</label>
+                    <select
+                      id={`lead-assignee-${lead.id}`}
+                      value={lead.assigned_user_id || ''}
+                      disabled={updatingId === lead.id || !assignees.length}
+                      onChange={(event) => { if (event.target.value) void assignLead(lead.id, event.target.value) }}
+                      className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:opacity-60"
+                    >
+                      <option value="">Не назначен</option>
+                      {assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.full_name || assignee.email}</option>)}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void assignLead(lead.id)}
+                      disabled={updatingId === lead.id}
+                      className="mt-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-[var(--ls-line)] px-3 text-sm font-medium text-[var(--ls-ink)] hover:bg-[var(--ls-paper)] disabled:opacity-40"
+                    >
+                      <UserRound className="h-4 w-4" aria-hidden="true" />
+                      Взять в работу
+                    </button>
+                    {lead.first_response_at ? <p className="mt-2 text-xs text-[var(--ls-muted)]">Первый ответ: {formatDate(lead.first_response_at)}</p> : lead.response_due_at ? <p className="mt-2 text-xs text-[var(--ls-muted)]">Ответить до: {formatDate(lead.response_due_at)}</p> : null}
                     <button
                       type="button"
                       onClick={() => void deleteLead(lead)}

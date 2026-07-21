@@ -330,6 +330,9 @@ def _apply_nspd_data(plot: Plot, data: dict, geom) -> None:
     """Apply the authoritative NSPD snapshot while preserving listing data."""
     metadata = dict(plot.plot_metadata or {})
     metadata["nspd"] = jsonable_encoder(data)
+    metadata["source"] = "nspd"
+    metadata["nspd_fetched_at"] = datetime.now(timezone.utc).isoformat()
+    metadata["geometry_verified"] = geom is not None
     plot.plot_metadata = metadata
 
     for plot_field, nspd_field in _NSPD_FIELD_MAP.items():

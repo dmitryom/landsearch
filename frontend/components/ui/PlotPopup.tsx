@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { BarChart3, Check, Copy, ExternalLink, MapPin, X } from 'lucide-react'
+import { AlertTriangle, BarChart3, Check, Copy, ExternalLink, History, MapPin, ShieldCheck, X } from 'lucide-react'
 import { STATUS_COLORS, STATUS_LABELS, vriColor } from '@/lib/constants'
 import { api } from '@/lib/api'
 import DraggableMapPanel, { PanelPositionControls } from '@/components/ui/DraggableMapPanel'
@@ -48,9 +48,14 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [statusHistory, setStatusHistory] = useState<Array<{ id: string; old_status?: string; new_status: string; changed_at: string }>>([])
   const dialogRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { dialogRef.current?.focus() }, [plot.id])
+  useEffect(() => {
+    dialogRef.current?.focus()
+    setStatusHistory([])
+    void api.plots.statusHistory(String(plot.id)).then(setStatusHistory).catch(() => undefined)
+  }, [plot.id])
 
   const handleConsult = async () => {
     if (!phone.trim()) return
@@ -89,6 +94,8 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
   const statusLabel = STATUS_LABELS[status] || 'Статус не указан'
   const permittedUse = plot.permitted_use || plot.use
   const pricePerSotka = plot.price != null && Number(plot.area_m2) > 0 ? plot.price / (plot.area_m2 / 100) : null
+  const quality = String(plot.geometry_quality || (plot.geometry ? 'verified' : 'missing'))
+  const qualityLabel = quality === 'verified' ? 'Геометрия подтверждена НСПД' : quality === 'manual' ? 'Геометрия импортирована из каталога' : 'Кадастровая геометрия отсутствует'
 
   return (
     <DraggableMapPanel
@@ -177,7 +184,20 @@ export default function PlotPopup({ plot, onClose }: { plot: Record<string, any>
         )}
         {tab === 'source' && (
           <div className="space-y-3">
-            <div className="rounded-md border border-[#bad8ca] bg-[#f4fbf7] p-3 text-xs leading-5 text-[var(--ls-muted)]"><strong className="block text-sm text-[var(--ls-green-dark)]">Источник: НСПД</strong>Кадастровые границы и атрибуты получены из Национальной системы пространственных данных. Дата обновления: {plot.updated_at ? new Date(plot.updated_at).toLocaleDateString('ru-RU') : 'не указана'}.</div>
+            <div className={`rounded-md border p-3 text-xs leading-5 ${quality === 'verified' ? 'border-[#bad8ca] bg-[#f4fbf7] text-[var(--ls-muted)]' : 'border-[#e8d9b7] bg-[#fffaf0] text-[#765b20]'}`}>
+              <strong className={`flex items-center gap-1.5 text-sm ${quality === 'verified' ? 'text-[var(--ls-green-dark)]' : 'text-[#765b20]'}`}>
+                {quality === 'verified' ? <ShieldCheck className="h-4 w-4" aria-hidden="true" /> : <AlertTriangle className="h-4 w-4" aria-hidden="true" />}
+                {qualityLabel}
+              </strong>
+              <span className="mt-1 block">{plot.data_source === 'nspd' ? 'Источник: НСПД' : `Источник кадастровых данных: ${plot.data_source || 'не указан'}`}.</span>
+              <span className="block">Дата обновления: {plot.source_fetched_at ? new Date(plot.source_fetched_at).toLocaleString('ru-RU') : 'не указана'}.</span>
+              <span className="block">Последнее изменение статуса: {plot.status_updated_at ? new Date(plot.status_updated_at).toLocaleString('ru-RU') : 'история пока не записана'}.</span>
+            </div>
+            {!!plot.data_quality_issues?.length && <div className="rounded-md border border-[#e8d9b7] bg-[#fffaf0] p-3 text-xs text-[#765b20]"><strong className="block text-sm">Что требует проверки</strong><ul className="mt-1 list-disc space-y-1 pl-4">{plot.data_quality_issues.map((issue: string) => <li key={issue}>{issue}</li>)}</ul></div>}
+            <div className="rounded-md border border-[var(--ls-line)] p-3">
+              <strong className="flex items-center gap-1.5 text-sm text-[var(--ls-ink)]"><History className="h-4 w-4" aria-hidden="true" /> История статуса</strong>
+              {statusHistory.length ? <ul className="mt-2 space-y-1 text-xs text-[var(--ls-muted)]">{statusHistory.slice(0, 5).map((item) => <li key={item.id}>{item.old_status || '—'} → {item.new_status} · {new Date(item.changed_at).toLocaleString('ru-RU')}</li>)}</ul> : <p className="mt-2 text-xs text-[var(--ls-muted)]">Изменений статуса пока нет.</p>}
+            </div>
             <a href="https://nspd.gov.ru/" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-[var(--ls-blue)] hover:underline">Открыть НСПД <ExternalLink className="h-4 w-4" aria-hidden="true" /></a>
           </div>
         )}

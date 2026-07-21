@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Lead, Plot, PlotStatus, PlotStatusHistory, Reservation, ReservationStatus
+from .plot_metadata import mark_plot_commercial_update
 
 
 class ReservationConflict(RuntimeError):
@@ -130,6 +131,7 @@ async def create_reservation(
     )
     old_status = plot.status.value
     plot.status = PlotStatus.reserved
+    mark_plot_commercial_update(plot, status_changed=True)
     session.add(reservation)
     session.add(PlotStatusHistory(
         plot_id=plot.id,
@@ -168,6 +170,7 @@ async def transition_reservation(
     old_status = plot.status.value
     apply_reservation_transition(reservation, plot, target)
     if plot.status.value != old_status:
+        mark_plot_commercial_update(plot, status_changed=True)
         session.add(PlotStatusHistory(
             plot_id=plot.id,
             old_status=old_status,
