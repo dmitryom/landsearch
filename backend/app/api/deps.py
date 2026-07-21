@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,22 +14,26 @@ security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     session: AsyncSession = Depends(get_session),
 ) -> User:
-    if credentials is None:
+    token = credentials.credentials if credentials else request.cookies.get("landsearch_session")
+    if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return await _resolve_user(credentials.credentials, session)
+    return await _resolve_user(token, session)
 
 
 async def get_current_user_optional(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     session: AsyncSession = Depends(get_session),
 ) -> User | None:
-    if credentials is None:
+    token = credentials.credentials if credentials else request.cookies.get("landsearch_session")
+    if not token:
         return None
     try:
-        return await _resolve_user(credentials.credentials, session)
+        return await _resolve_user(token, session)
     except HTTPException:
         return None
 

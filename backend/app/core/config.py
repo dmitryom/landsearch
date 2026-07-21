@@ -9,10 +9,16 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     secret_key: str = ""
-    access_token_expire_minutes: int = 60 * 24
+    webhook_encryption_key: str = ""
+    webhook_worker_enabled: bool = True
+    webhook_worker_interval_seconds: int = 15
+    access_token_expire_minutes: int = 60
+    session_cookie_secure: bool = True
+    retention_worker_enabled: bool = True
+    retention_worker_interval_seconds: int = 60 * 60 * 24
     public_tenant_slug: str | None = "demo-tenant"
 
-    cors_origins: str = "http://195.2.74.197,https://195.2.74.197,http://localhost:3000,http://127.0.0.1,http://127.0.0.1:3000"
+    cors_origins: str = "http://195.2.74.197,https://195.2.74.197,https://v3163460.hosted-by-vdsina.ru,http://localhost:3000,http://127.0.0.1:3000"
 
     nspd_proxy: str | None = None
     nspd_timeout: int = 30

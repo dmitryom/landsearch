@@ -44,6 +44,9 @@ export interface Settlement {
   boundary_source?: 'nspd' | 'manual_polygon' | 'manual_radius' | null
   boundary_radius_m?: number | null
   boundary_updated_at?: string | null
+  public_slug?: string | null
+  is_published?: boolean
+  published_at?: string | null
   plots?: Plot[]
   stats?: {
     total_plots: number
@@ -57,12 +60,36 @@ export interface Settlement {
   }
 }
 
+export interface PublicSettlement {
+  id: string
+  name: string
+  description?: string
+  address?: string
+  region?: string
+  district?: string
+  geometry: Record<string, unknown>
+  public_slug: string
+  stats: {
+    total_plots: number
+    by_status: Record<Plot['status'], number>
+    total_area_m2: number
+    total_price: number
+  }
+}
+
 export interface SettlementCreate {
   name: string
   description?: string
   address?: string
   region?: string
   district?: string
+}
+
+export interface SettlementDeleteResult {
+  deleted: boolean
+  settlement_id: string
+  name: string
+  unlinked_plots: number
 }
 
 export type SettlementBoundaryMode = 'polygon' | 'radius' | 'clear'
@@ -121,6 +148,24 @@ export interface AuthResponse {
   }
 }
 
+export interface LegalProfile {
+  operator_name?: string | null
+  legal_form?: string | null
+  inn?: string | null
+  ogrn?: string | null
+  address?: string | null
+  email?: string | null
+  phone?: string | null
+  rkn_registry_number?: string | null
+  rkn_registry_url?: string | null
+  rkn_exemption_reason?: string | null
+  policy_effective_date?: string | null
+  lead_retention_days: number
+  reservation_retention_days: number
+  is_complete: boolean
+  updated_at?: string | null
+}
+
 export type LeadStatus = 'new' | 'in_progress' | 'closed' | 'spam'
 
 export interface LeadResponse {
@@ -135,6 +180,62 @@ export interface LeadResponse {
   plot_cadastral_number?: string
   plot_status?: Plot['status']
   plot_price?: number
+  consent_at?: string
+  consent_version?: string
+  expires_at?: string
+  created_at: string
+}
+
+export type ReservationStatus = 'active' | 'confirmed' | 'cancelled' | 'expired'
+
+export interface ReservationResponse {
+  id: string
+  plot_id: string
+  lead_id?: string
+  responsible_user_id: string
+  buyer_name?: string
+  buyer_phone?: string
+  buyer_email?: string
+  note?: string
+  status: ReservationStatus
+  starts_at: string
+  expires_at: string
+  confirmed_at?: string
+  cancelled_at?: string
+  created_at: string
+  updated_at: string
+  plot_cadastral_number?: string
+  plot_title?: string
+  plot_status?: Plot['status']
+}
+
+export interface AuditEventResponse {
+  id: string
+  actor_id?: string
+  entity_type: string
+  entity_id: string
+  action: string
+  details: Record<string, unknown>
+  created_at: string
+}
+
+export interface WebhookConfigResponse {
+  url?: string
+  enabled: boolean
+  has_secret: boolean
+  updated_at?: string
+}
+
+export interface WebhookDeliveryResponse {
+  id: string
+  event_id: string
+  event_type: string
+  status: string
+  attempts: number
+  next_attempt_at: string
+  last_http_status?: number
+  last_error_code?: string
+  delivered_at?: string
   created_at: string
 }
 
@@ -319,10 +420,14 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ items }),
       }),
+    create: (data: SettlementCreate) =>
+      request<Settlement>('/settlements', { method: 'POST', body: JSON.stringify(data) }),
     get: (id: string, options?: { include_plots?: boolean }) => {
       const qs = options?.include_plots === false ? '?include_plots=false' : ''
       return request<Settlement>(`/settlements/${id}${qs}`)
     },
+    delete: (id: string) =>
+      request<SettlementDeleteResult>(`/settlements/${id}`, { method: 'DELETE' }),
     previewBoundary: (id: string, data: SettlementBoundaryPayload) =>
       request<SettlementBoundaryPreview>(`/settlements/${id}/boundary/preview`, {
         method: 'POST',
@@ -337,6 +442,12 @@ export const api = {
       request<{ found: number; imported: number; updated: number; skipped: number; excluded: number; unlinked: number }>('/settlements/' + id + '/nspd-import', {
         method: 'POST',
       }),
+    updatePublication: (id: string, data: { is_published: boolean; public_slug?: string }) =>
+      request<{ id: string; public_slug?: string; is_published: boolean; published_at?: string }>(`/settlements/${id}/publication`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
+    getPublic: (slug: string) => request<PublicSettlement>(`/settlements/public/${encodeURIComponent(slug)}`),
     analyze: (id: string, minArea?: number, maxArea?: number) => {
       const params = new URLSearchParams()
       if (minArea) params.set('min_area', String(minArea))
@@ -359,7 +470,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       }),
-    register: (data: { email: string; password: string; full_name?: string }) =>
+    register: (data: { email: string; password: string; full_name?: string; terms_accepted: boolean; terms_version?: string }) =>
       request<AuthResponse>('/auth/register', {
         method: 'POST',
         body: JSON.stringify(data),
@@ -372,11 +483,41 @@ export const api = {
       }),
   },
   leads: {
-    create: (data: { plot_id: string; buyer_name?: string; buyer_phone?: string; buyer_email?: string; message?: string }) =>
+    create: (data: { plot_id: string; buyer_name?: string; buyer_phone?: string; buyer_email?: string; message?: string; consent_given: true; consent_version?: string }) =>
       request<{ status: string; id: string }>('/leads', { method: 'POST', body: JSON.stringify(data) }),
     list: () => request<LeadResponse[]>('/leads'),
     update: (id: string, data: { status: LeadStatus }) =>
       request<LeadResponse>(`/leads/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    delete: (id: string) => request<void>(`/leads/${id}`, { method: 'DELETE' }),
+  },
+  reservations: {
+    list: (status?: ReservationStatus) =>
+      request<ReservationResponse[]>(`/reservations${status ? `?status=${status}` : ''}`),
+    create: (data: { plot_id: string; lead_id?: string; buyer_name?: string; buyer_phone?: string; buyer_email?: string; note?: string; duration_hours?: number }) =>
+      request<ReservationResponse>('/reservations', { method: 'POST', body: JSON.stringify(data) }),
+    extend: (id: string, duration_hours = 24) =>
+      request<ReservationResponse>(`/reservations/${id}/extend`, { method: 'PATCH', body: JSON.stringify({ duration_hours }) }),
+    confirm: (id: string) => request<ReservationResponse>(`/reservations/${id}/confirm`, { method: 'PATCH' }),
+    cancel: (id: string) => request<ReservationResponse>(`/reservations/${id}/cancel`, { method: 'PATCH' }),
+    expire: () => request<{ expired: number }>('/reservations/expire', { method: 'POST' }),
+  },
+  audit: {
+    list: (entityType?: string) =>
+      request<AuditEventResponse[]>(`/audit${entityType ? `?entity_type=${encodeURIComponent(entityType)}` : ''}`),
+  },
+  webhook: {
+    get: () => request<WebhookConfigResponse>('/settings/webhook'),
+    update: (data: { url: string; secret?: string; enabled: boolean }) =>
+      request<WebhookConfigResponse>('/settings/webhook', { method: 'PUT', body: JSON.stringify(data) }),
+    deliveries: () => request<WebhookDeliveryResponse[]>('/settings/webhook/deliveries'),
+    process: () => request<{ processed: number }>('/settings/webhook/deliveries/process', { method: 'POST' }),
+    retry: (id: string) => request<{ status: string }>(`/settings/webhook/deliveries/${id}/retry`, { method: 'POST' }),
+  },
+  legal: {
+    public: () => request<LegalProfile>('/legal'),
+    get: () => request<LegalProfile>('/settings/legal'),
+    update: (data: Omit<LegalProfile, 'is_complete' | 'updated_at'>) =>
+      request<LegalProfile>('/settings/legal', { method: 'PUT', body: JSON.stringify(data) }),
   },
   imports: {
     upload: async (file: File, settlement_id?: string) => {

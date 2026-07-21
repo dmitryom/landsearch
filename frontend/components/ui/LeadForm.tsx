@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useId, useState } from 'react'
 import { Send } from 'lucide-react'
 import { api } from '@/lib/api'
 
@@ -20,6 +20,8 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
+  const [consentGiven, setConsentGiven] = useState(false)
+  const idPrefix = useId()
 
   const updateField = (key: keyof typeof form, value: string) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -29,7 +31,11 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!form.buyer_phone.trim() && !form.buyer_email.trim()) {
-      setError('Укажите телефон или email для связи')
+      setError('Укажите телефон или электронную почту для связи')
+      return
+    }
+    if (!consentGiven) {
+      setError('Подтвердите согласие на обработку персональных данных')
       return
     }
 
@@ -42,9 +48,11 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
         buyer_phone: form.buyer_phone.trim() || undefined,
         buyer_email: form.buyer_email.trim() || undefined,
         message: form.message.trim() || undefined,
+        consent_given: true,
       })
       setSent(true)
       setForm({ buyer_name: '', buyer_phone: '', buyer_email: '', message: '' })
+      setConsentGiven(false)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось отправить заявку')
     }
@@ -66,11 +74,11 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
       </h2>
 
       <div>
-        <label htmlFor="lead-name" className="block text-xs font-medium text-gray-600 mb-1">
+        <label htmlFor={`${idPrefix}-lead-name`} className="block text-xs font-medium text-gray-600 mb-1">
           Имя
         </label>
         <input
-          id="lead-name"
+          id={`${idPrefix}-lead-name`}
           value={form.buyer_name}
           onChange={(e) => updateField('buyer_name', e.target.value)}
           className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
@@ -80,11 +88,11 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
       </div>
 
       <div>
-        <label htmlFor="lead-phone" className="block text-xs font-medium text-gray-600 mb-1">
+        <label htmlFor={`${idPrefix}-lead-phone`} className="block text-xs font-medium text-gray-600 mb-1">
           Телефон
         </label>
         <input
-          id="lead-phone"
+          id={`${idPrefix}-lead-phone`}
           type="tel"
           value={form.buyer_phone}
           onChange={(e) => updateField('buyer_phone', e.target.value)}
@@ -95,11 +103,11 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
       </div>
 
       <div>
-        <label htmlFor="lead-email" className="block text-xs font-medium text-gray-600 mb-1">
-          Email
+        <label htmlFor={`${idPrefix}-lead-email`} className="block text-xs font-medium text-gray-600 mb-1">
+          Электронная почта
         </label>
         <input
-          id="lead-email"
+          id={`${idPrefix}-lead-email`}
           type="email"
           value={form.buyer_email}
           onChange={(e) => updateField('buyer_email', e.target.value)}
@@ -109,17 +117,28 @@ export default function LeadForm({ plotId, title = 'Заявка на консу
       </div>
 
       <div>
-        <label htmlFor="lead-message" className="block text-xs font-medium text-gray-600 mb-1">
+        <label htmlFor={`${idPrefix}-lead-message`} className="block text-xs font-medium text-gray-600 mb-1">
           Комментарий
         </label>
         <textarea
-          id="lead-message"
+          id={`${idPrefix}-lead-message`}
           value={form.message}
           onChange={(e) => updateField('message', e.target.value)}
           className="min-h-20 w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           placeholder="Интересует цена, условия покупки или просмотр участка"
         />
       </div>
+
+      <label className="flex items-start gap-2 text-xs leading-5 text-gray-600">
+        <input
+          type="checkbox"
+          required
+          checked={consentGiven}
+          onChange={(event) => setConsentGiven(event.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0"
+        />
+        <span>Я согласен на обработку персональных данных в соответствии с <a href="/privacy" target="_blank" className="text-blue-700 underline">политикой конфиденциальности</a>.</span>
+      </label>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

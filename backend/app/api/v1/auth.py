@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...core.config import settings
 from ...core.database import get_session
 from ...core.exceptions import ConflictException, UnauthorizedException
 from ...core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
@@ -10,6 +13,20 @@ from ...schemas import LoginRequest, RefreshTokenRequest, TokenResponse, UserCre
 from ..deps import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _set_session_cookie(response: Response | None, access_token: str) -> None:
+    if response is None:
+        return
+    response.set_cookie(
+        key="landsearch_session",
+        value=access_token,
+        max_age=settings.access_token_expire_minutes * 60,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
 
 def _build_token_response(user: User) -> TokenResponse:
     token_data = {"sub": str(user.id)}
@@ -27,7 +44,7 @@ def _build_token_response(user: User) -> TokenResponse:
 
 
 @router.post("/register", response_model=TokenResponse)
-async def register(body: UserCreate, session: AsyncSession = Depends(get_session)):
+async def register(body: UserCreate, response: Response = None, session: AsyncSession = Depends(get_session)):
     existing = await session.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise ConflictException("Email already registered")
@@ -46,25 +63,31 @@ async def register(body: UserCreate, session: AsyncSession = Depends(get_session
         password_hash=hash_password(body.password),
         full_name=body.full_name,
         role=UserRole.buyer,
+        terms_accepted_at=datetime.now(timezone.utc),
+        terms_version=body.terms_version,
     )
     session.add(user)
     await session.commit()
 
-    return _build_token_response(user)
+    tokens = _build_token_response(user)
+    _set_session_cookie(response, tokens.access_token)
+    return tokens
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, session: AsyncSession = Depends(get_session)):
+async def login(body: LoginRequest, response: Response = None, session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         raise UnauthorizedException("Invalid email or password")
 
-    return _build_token_response(user)
+    tokens = _build_token_response(user)
+    _set_session_cookie(response, tokens.access_token)
+    return tokens
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh(body: RefreshTokenRequest, session: AsyncSession = Depends(get_session)):
+async def refresh(body: RefreshTokenRequest, response: Response = None, session: AsyncSession = Depends(get_session)):
     payload = decode_refresh_token(body.refresh_token)
     if payload is None:
         raise UnauthorizedException("Invalid or expired refresh token")
@@ -78,7 +101,20 @@ async def refresh(body: RefreshTokenRequest, session: AsyncSession = Depends(get
     if not user or not user.is_active:
         raise UnauthorizedException("User not found or inactive")
 
-    return _build_token_response(user)
+    tokens = _build_token_response(user)
+    _set_session_cookie(response, tokens.access_token)
+    return tokens
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response):
+    response.delete_cookie(
+        key="landsearch_session",
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
 
 
 @router.get("/me", response_model=UserResponse)

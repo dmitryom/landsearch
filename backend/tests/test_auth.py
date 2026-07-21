@@ -16,6 +16,14 @@ async def test_login_success(client: AsyncClient):
     assert "refresh_token" in data
     assert data["token_type"] == "bearer"
     assert data["user"]["email"] == "admin@demo.landsearch"
+    cookie = res.cookies.get("landsearch_session")
+    assert cookie
+    assert "HttpOnly" in res.headers["set-cookie"]
+    assert "SameSite=lax" in res.headers["set-cookie"]
+
+    me_res = await client.get("/api/v1/auth/me")
+    assert me_res.status_code == 200
+    assert me_res.json()["email"] == "admin@demo.landsearch"
 
 
 @pytest.mark.asyncio
@@ -87,9 +95,36 @@ async def test_register(client: AsyncClient):
             "email": email,
             "password": "test123456",
             "full_name": "Test User",
+            "terms_accepted": True,
         },
     )
     assert res.status_code == 200
     data = res.json()
     assert "access_token" in data
     assert data["user"]["email"] == email
+
+
+@pytest.mark.asyncio
+async def test_register_requires_terms_acceptance(client: AsyncClient):
+    res = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": f"no-consent-{uuid.uuid4().hex[:8]}@test.com",
+            "password": "test123456",
+            "full_name": "Test User",
+            "terms_accepted": False,
+        },
+    )
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_logout_clears_browser_session(client: AsyncClient):
+    login_res = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "admin@demo.landsearch", "password": "demo123456"},
+    )
+    assert login_res.status_code == 200
+    logout_res = await client.post("/api/v1/auth/logout")
+    assert logout_res.status_code == 204
+    assert "landsearch_session=\"\"" in logout_res.headers["set-cookie"]

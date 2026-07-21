@@ -3,6 +3,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -29,6 +31,13 @@ class PlotStatus(str, enum.Enum):
     reserved = "reserved"
     booked = "booked"
     sold = "sold"
+
+
+class ReservationStatus(str, enum.Enum):
+    active = "active"
+    confirmed = "confirmed"
+    cancelled = "cancelled"
+    expired = "expired"
 
 
 class UserRole(str, enum.Enum):
@@ -61,6 +70,13 @@ class Tenant(Base):
     plots = relationship("Plot", back_populates="tenant")
     leads = relationship("Lead", back_populates="tenant")
     pois = relationship("SettlementPoi", back_populates="tenant")
+    reservations = relationship("Reservation", back_populates="tenant")
+    legal_profile = relationship(
+        "TenantLegalProfile",
+        back_populates="tenant",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class User(Base):
@@ -73,6 +89,8 @@ class User(Base):
     full_name = Column(String(255))
     role = Column(Enum(UserRole), default=UserRole.buyer)
     is_active = Column(Boolean, default=True)
+    terms_accepted_at = Column(DateTime(timezone=True))
+    terms_version = Column(String(32))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant", back_populates="users")
@@ -92,6 +110,9 @@ class Settlement(Base):
     boundary_source = Column(String(32), nullable=True, default="nspd")
     boundary_radius_m = Column(Float, nullable=True)
     boundary_updated_at = Column(DateTime(timezone=True), nullable=True)
+    public_slug = Column(String(100), unique=True, nullable=True, index=True)
+    is_published = Column(Boolean, nullable=False, default=False)
+    published_at = Column(DateTime(timezone=True), nullable=True)
     address = Column(String(500))
     region = Column(String(100))
     district = Column(String(100))
@@ -149,6 +170,7 @@ class Plot(Base):
     tenant = relationship("Tenant", back_populates="plots")
     settlement = relationship("Settlement", back_populates="plots")
     status_history = relationship("PlotStatusHistory", back_populates="plot")
+    reservations = relationship("Reservation", back_populates="plot")
 
 
 class PlotStatusHistory(Base):
@@ -214,9 +236,129 @@ class Lead(Base):
     buyer_email = Column(String(255))
     message = Column(Text)
     status = Column(String(50), default="new")
+    consent_at = Column(DateTime(timezone=True))
+    consent_version = Column(String(32))
+    expires_at = Column(DateTime(timezone=True), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     tenant = relationship("Tenant", back_populates="leads")
+
+
+class Reservation(Base):
+    __tablename__ = "reservations"
+    __table_args__ = (
+        Index("idx_reservations_tenant_status", "tenant_id", "status"),
+        Index("idx_reservations_expires_at", "expires_at"),
+        Index(
+            "uq_reservations_active_plot",
+            "plot_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    plot_id = Column(UUID(as_uuid=True), ForeignKey("plots.id"), nullable=False)
+    lead_id = Column(UUID(as_uuid=True), ForeignKey("leads.id"), nullable=True)
+    responsible_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    buyer_name = Column(String(255))
+    buyer_phone = Column(String(50))
+    buyer_email = Column(String(255))
+    note = Column(Text)
+    status = Column(Enum(ReservationStatus), nullable=False, default=ReservationStatus.active)
+    starts_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    pii_expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    confirmed_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    tenant = relationship("Tenant", back_populates="reservations")
+    plot = relationship("Plot", back_populates="reservations")
+
+
+class TenantLegalProfile(Base):
+    __tablename__ = "tenant_legal_profiles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    operator_name = Column(String(500))
+    legal_form = Column(String(255))
+    inn = Column(String(12))
+    ogrn = Column(String(15))
+    address = Column(String(1000))
+    email = Column(String(255))
+    phone = Column(String(50))
+    rkn_registry_number = Column(String(100))
+    rkn_registry_url = Column(String(1000))
+    rkn_exemption_reason = Column(Text)
+    policy_effective_date = Column(Date)
+    lead_retention_days = Column(Integer, nullable=False, default=365, server_default="365")
+    reservation_retention_days = Column(Integer, nullable=False, default=365, server_default="365")
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+    tenant = relationship("Tenant", back_populates="legal_profile")
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+    __table_args__ = (
+        Index("idx_audit_events_tenant_created", "tenant_id", "created_at"),
+        Index("idx_audit_events_entity", "tenant_id", "entity_type", "entity_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    actor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    entity_type = Column(String(64), nullable=False)
+    entity_id = Column(String(100), nullable=False)
+    action = Column(String(100), nullable=False)
+    details = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TenantWebhookConfig(Base):
+    __tablename__ = "tenant_webhook_configs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, unique=True)
+    url = Column(String(1000), nullable=False)
+    secret_encrypted = Column(Text, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=False)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class WebhookOutbox(Base):
+    __tablename__ = "webhook_outbox"
+    __table_args__ = (
+        Index("idx_webhook_outbox_due", "status", "next_attempt_at"),
+        Index("idx_webhook_outbox_tenant_created", "tenant_id", "created_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    event_id = Column(UUID(as_uuid=True), ForeignKey("audit_events.id"), nullable=False, unique=True)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False)
+    event_type = Column(String(100), nullable=False)
+    payload = Column(JSON, nullable=False)
+    status = Column(String(32), nullable=False, default="pending")
+    attempts = Column(Integer, nullable=False, default=0)
+    next_attempt_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_http_status = Column(Integer)
+    last_error_code = Column(String(100))
+    delivered_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
 
 
 class Import(Base):

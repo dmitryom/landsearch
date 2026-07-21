@@ -1,6 +1,7 @@
 'use client'
 
 const MAX_LOGS = 50
+const debugLogs = process.env.NEXT_PUBLIC_DEBUG_LOGS === 'true'
 
 export interface LogEntry {
   ts: string
@@ -20,7 +21,8 @@ export function log(cat: LogEntry['cat'], msg: string, detail?: string) {
   const ts = new Date().toLocaleTimeString('ru-RU', { hour12: false })
   _logs.push({ ts, cat, msg, detail })
   if (_logs.length > MAX_LOGS) _logs.shift()
-  console.log(`[${cat.toUpperCase()}] ${msg}`, detail || '')
+  if (debugLogs) console.log(`[${cat.toUpperCase()}] ${msg}`, detail || '')
+  else if (cat === 'error') console.error(`[${cat.toUpperCase()}] ${msg}`, detail || '')
   notify()
 }
 

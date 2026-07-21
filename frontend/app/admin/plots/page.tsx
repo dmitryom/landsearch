@@ -461,7 +461,7 @@ export default function AdminPlotsPage() {
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-green-700">
                 {nspdData.object_type && <span>Вид объекта: {nspdData.object_type}</span>}
                 {nspdData.land_plot_type && <span>Вид участка: {nspdData.land_plot_type}</span>}
-                {nspdData.registration_date && <span>Дата reg.: {nspdData.registration_date}</span>}
+                {nspdData.registration_date && <span>Дата регистрации: {nspdData.registration_date}</span>}
                 {nspdData.cad_unit && <span>Квартал: {nspdData.cad_unit}</span>}
                 {nspdData.area_m2 && <span>Площадь: {nspdData.area_m2} м²</span>}
                 {nspdData.cad_status && <span>Статус ЕГРН: {nspdData.cad_status}</span>}

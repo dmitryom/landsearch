@@ -94,7 +94,10 @@ async def process_rows(
                     title = str(val).strip()
 
             existing = await session.execute(
-                sa_select(Plot).where(Plot.cadastral_number == cn)
+                sa_select(Plot).where(
+                    Plot.tenant_id == tenant_id,
+                    Plot.cadastral_number == cn,
+                )
             )
             if existing.scalar_one_or_none():
                 errors.append(f"Row {idx + 2}: {cn} already exists")

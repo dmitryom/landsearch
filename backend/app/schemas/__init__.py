@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -11,6 +11,8 @@ class UserCreate(BaseModel):
     email: str = Field(..., max_length=255)
     password: str = Field(..., min_length=6, max_length=128)
     full_name: str | None = Field(None, max_length=255)
+    terms_accepted: Literal[True]
+    terms_version: str = Field(default="2026-07-20", max_length=32)
 
 
 class UserResponse(BaseModel):
@@ -185,12 +187,48 @@ class SettlementBoundaryPreview(BaseModel):
     by_status: dict[str, int]
 
 
+class SettlementNspdImportRequest(BaseModel):
+    min_coverage: float = Field(default=0.5, ge=0.5, le=1.0)
+    dry_run: bool = False
+
+
+class SettlementNspdImportResult(BaseModel):
+    discovered: int
+    eligible: int
+    created: int
+    updated: int
+    skipped: int
+    failed: int
+    dry_run: bool
+    errors: list[str] = Field(default_factory=list)
+
+
 class SettlementResponse(SettlementBase):
     id: str
     tenant_id: str
     created_at: datetime
+    public_slug: str | None = None
+    is_published: bool = False
+    published_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SettlementPublicationUpdate(BaseModel):
+    is_published: bool
+    public_slug: str | None = Field(None, min_length=3, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+class PublicSettlementResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None = None
+    address: str | None = None
+    region: str | None = None
+    district: str | None = None
+    geometry: dict[str, Any]
+    public_slug: str
+    stats: dict[str, Any]
 
 
 class PlotSearchParams(BaseModel):
@@ -229,6 +267,8 @@ class LeadCreate(BaseModel):
     buyer_phone: str | None = Field(None, max_length=50)
     buyer_email: str | None = None
     message: str | None = None
+    consent_given: Literal[True]
+    consent_version: str = Field(default="2026-07-20", max_length=32)
 
 
 LeadStatus = Literal["new", "in_progress", "closed", "spam"]
@@ -251,8 +291,57 @@ class LeadResponse(BaseModel):
     plot_status: str | None = None
     plot_price: float | None = None
     created_at: datetime
+    consent_at: datetime | None = None
+    consent_version: str | None = None
+    expires_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LegalProfileUpdate(BaseModel):
+    operator_name: str | None = Field(None, max_length=500)
+    legal_form: str | None = Field(None, max_length=255)
+    inn: str | None = Field(None, pattern=r"^(?:\d{10}|\d{12})$")
+    ogrn: str | None = Field(None, pattern=r"^(?:\d{13}|\d{15})$")
+    address: str | None = Field(None, max_length=1000)
+    email: str | None = Field(None, max_length=255)
+    phone: str | None = Field(None, max_length=50)
+    rkn_registry_number: str | None = Field(None, max_length=100)
+    rkn_registry_url: str | None = Field(None, max_length=1000)
+    rkn_exemption_reason: str | None = Field(None, max_length=2000)
+    policy_effective_date: date | None = None
+    lead_retention_days: int = Field(default=365, ge=1, le=3650)
+    reservation_retention_days: int = Field(default=365, ge=1, le=3650)
+
+    @field_validator(
+        "operator_name",
+        "legal_form",
+        "address",
+        "email",
+        "phone",
+        "rkn_registry_number",
+        "rkn_registry_url",
+        "rkn_exemption_reason",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_text(cls, value):
+        if isinstance(value, str):
+            value = value.strip()
+            return value or None
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        if value and ("@" not in value or value.startswith("@") or value.endswith("@")):
+            raise ValueError("Invalid email address")
+        return value
+
+
+class LegalProfileResponse(LegalProfileUpdate):
+    is_complete: bool = False
+    updated_at: datetime | None = None
 
 
 class PoiType(str, enum.Enum):
@@ -345,3 +434,78 @@ class SettlementPoiResponse(BaseModel):
     is_published: bool
     created_at: datetime
     updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReservationCreate(BaseModel):
+    plot_id: str
+    lead_id: str | None = None
+    buyer_name: str | None = Field(None, max_length=255)
+    buyer_phone: str | None = Field(None, max_length=50)
+    buyer_email: str | None = Field(None, max_length=255)
+    note: str | None = Field(None, max_length=2000)
+    duration_hours: int = Field(default=24, ge=1, le=720)
+
+
+class ReservationExtend(BaseModel):
+    duration_hours: int = Field(..., ge=1, le=720)
+
+
+class ReservationResponse(BaseModel):
+    id: str
+    plot_id: str
+    lead_id: str | None = None
+    responsible_user_id: str
+    buyer_name: str | None = None
+    buyer_phone: str | None = None
+    buyer_email: str | None = None
+    note: str | None = None
+    status: str
+    starts_at: datetime
+    expires_at: datetime
+    confirmed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    plot_cadastral_number: str | None = None
+    plot_title: str | None = None
+    plot_status: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditEventResponse(BaseModel):
+    id: str
+    actor_id: str | None = None
+    entity_type: str
+    entity_id: str
+    action: str
+    details: dict[str, Any]
+    created_at: datetime
+
+
+class WebhookConfigUpdate(BaseModel):
+    url: str = Field(..., min_length=12, max_length=1000)
+    secret: str | None = Field(None, min_length=16, max_length=500)
+    enabled: bool = True
+
+
+class WebhookConfigResponse(BaseModel):
+    url: str | None = None
+    enabled: bool = False
+    has_secret: bool = False
+    updated_at: datetime | None = None
+
+
+class WebhookDeliveryResponse(BaseModel):
+    id: str
+    event_id: str
+    event_type: str
+    status: str
+    attempts: int
+    next_attempt_at: datetime
+    last_http_status: int | None = None
+    last_error_code: str | None = None
+    delivered_at: datetime | None = None
+    created_at: datetime
