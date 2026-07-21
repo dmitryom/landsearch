@@ -295,6 +295,7 @@ export default function HomePage() {
   }
 
   const resultBounds = selectedBounds ?? listBounds
+  const searchValue = filters.query || selectedSettlement?.name || ''
 
   return (
     <div className="flex flex-col h-screen">
@@ -306,7 +307,7 @@ export default function HomePage() {
           <h1 className="text-lg font-bold text-[var(--ls-ink)]">LandSearch</h1>
         </div>
         <div className="hidden md:block md:flex-1 md:max-w-xl">
-          <SearchBar onSearch={handleSearch} resetToken={searchResetToken} />
+          <SearchBar onSearch={handleSearch} resetToken={searchResetToken} value={searchValue} />
         </div>
         <div className="flex items-center gap-2 sm:gap-4 text-sm">
           <div className="hidden items-center gap-1 text-[var(--ls-muted)] md:flex">
@@ -337,7 +338,7 @@ export default function HomePage() {
       </header>
 
       <div className="border-b border-[var(--ls-line)] bg-[var(--ls-surface)] px-4 py-2 md:hidden">
-        <SearchBar onSearch={handleSearch} resetToken={searchResetToken} />
+        <SearchBar onSearch={handleSearch} resetToken={searchResetToken} value={searchValue} />
       </div>
 
       <div className="relative flex-1 flex overflow-hidden min-h-0">
